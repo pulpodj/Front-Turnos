@@ -1,0 +1,725 @@
+:root{
+--c-primary:#2684fe;
+--c-secondary:#e1eeff;
+--c-bg:#ffffff;
+--c-extra-1:#fff6d9;
+--c-extra-2:#edf6ff;
+--c-extra-3:#7ef7bf;
+--c-extra-4:#ffd9ff;
+--radius: 18px;
+}
+
+
+*{ box-sizing: border-box }
+html,body,#root{ height:100% }
+body{
+margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+color:#0e1b2b; background: var(--c-bg);
+}
+
+
+.auth-bg{ position:relative; min-height:100%; display:grid; place-items:center; overflow:hidden }
+.auth-bg-video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; filter:saturate(1.05); }
+.auth-bg-dim{ position:absolute; inset:0; background: radial-gradient(1200px 800px at 80% 20%, rgba(255,255,255,.15), rgba(255,255,255,.0)),
+linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,.6));
+}
+
+
+.glass{
+position:relative; z-index:1; width:min(94vw, 460px);
+background: linear-gradient(135deg, rgba(255,255,255,.45), rgba(255,255,255,.25)) border-box;
+border: 1px solid rgba(255,255,255,.45);
+backdrop-filter: blur(16px) saturate(1.2);
+-webkit-backdrop-filter: blur(16px) saturate(1.2);
+border-radius: var(--radius);
+padding: 28px 24px; box-shadow: 0 10px 40px rgba(0,0,0,.15);
+}
+
+
+.login-card h1{
+  margin: 0 0 4px;
+  font-size: 1.8rem;
+}
+
+/* Texto secundario genérico */
+.muted{
+  color: #5b7290;
+  font-size: 0.9rem;
+  margin: 4px 0 0 0;
+  padding: 0;
+}
+
+
+.segmented{ display:flex; background: rgba(255,255,255,.45); border-radius: 999px; padding:6px; border:1px solid rgba(255,255,255,.6); }
+.segmented button{ flex:1; border:0; background:transparent; padding:10px 14px; border-radius:999px; font-weight:600; cursor:pointer }
+.segmented button.active{ background: var(--c-secondary); box-shadow: inset 0 1px 0 rgba(255,255,255,.9); }
+
+
+.form{ display:grid; gap:14px; margin-top:16px }
+.form label{ display:grid; gap:8px; font-weight:600 }
+.form input{ border:1px solid #dfe6f2; border-radius:10px; padding:12px 14px; font-size:1rem; outline:none; background: rgba(255,255,255,.85); }
+.form input:focus{ border-color: var(--c-primary); box-shadow: 0 0 0 3px #2684fe33 }
+
+
+.choice-row{ display:flex; gap:10px }
+.radio{ display:flex; align-items:center; gap:6px; background: rgba(255,255,255,.7); border:1px solid #e8eef8; padding:8px 10px; border-radius:10px; }
+
+
+.inline{ display:flex; align-items:center; justify-content:space-between }
+
+
+.primary{ border:0; background: var(--c-primary); color:#fff; padding:12px 16px; border-radius: 12px; font-weight:700; cursor:pointer }
+.primary:disabled{ opacity:.6; cursor:not-allowed }
+
+
+.error{ display:flex; align-items:center; gap:8px; padding:10px; border-radius:10px; background:#fff1f1; color:#8a1c1c; border:1px solid #ffd5d5 }
+
+
+.material-symbols-rounded{ font-family: 'Material Symbols Rounded'; font-weight: normal; font-style: normal; font-size: 20px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; word-wrap: normal; direction: ltr; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
+
+.login-card{
+  position: relative;
+  overflow: hidden;               /* <-- recorta el video al borde de la card */
+}
+
+.card-bg-video{
+  position: absolute;
+  inset: 0;
+  z-index: 0;                     /* debajo del contenido de la card */
+}
+
+.card-video{
+  width: 100%;
+  height: 100%;
+  object-fit: cover;              /* cubre toda la card */
+  filter: saturate(1.05);
+}
+
+.card-bg-scrim{
+  position: absolute;
+  inset: 0;
+  /* leve velo para contraste de textos dentro de la card */
+  background: radial-gradient(120% 80% at 80% 20%, rgba(255,255,255,.12), rgba(255,255,255,0))
+              ,linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,.55));
+}
+
+/* asegura que el contenido de la card esté arriba del video */
+.login-card > *{
+  position: relative;
+  z-index: 1;
+}
+
+/* accesibilidad: usuarios que prefieren menos animación */
+@media (prefers-reduced-motion: reduce){
+  .card-video{ animation: none; }
+  .card-video{ /* pausa si se quiere */ }
+}
+.auth-bg{
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+/* Video a pantalla completa detrás */
+.auth-bg-video{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(1.05);
+  z-index: 0;               /* ⬅ video al fondo */
+}
+
+/* Velo para contraste (entre video y card) */
+.auth-bg-dim{
+  position: absolute;
+  inset: 0;
+  z-index: 1;               /* ⬅ sobre el video, debajo de la card */
+  background:
+    radial-gradient(1200px 800px at 80% 20%, rgba(255,255,255,.15), rgba(255,255,255,0))
+    ,linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,.6));
+}
+
+/* Glass card por encima del dim */
+.glass{
+  position: relative;
+  z-index: 2;               /* ⬅ por encima del velo */
+  width: min(94vw, 460px);
+  /* Fondo SEMI-transparente para que el blur “tome” el video */
+  background: linear-gradient(135deg, rgba(255,255,255,.45), rgba(255,255,255,.25)) border-box;
+  border: 1px solid rgba(255,255,255,.45);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.15);
+}
+.auth-bg{
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.auth-bg-video{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(1.05);
+  z-index: 0;
+}
+.auth-bg-dim{
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    radial-gradient(1200px 800px at 80% 20%, rgba(255,255,255,.15), rgba(255,255,255,0)),
+    linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,.6));
+}
+.glass{
+  position: relative;
+  z-index: 2; /* por encima del dim */
+  /* resto igual a lo que ya tenés */
+}
+/* Layout general */
+.page-wrap{ min-height:100dvh; display:flex; flex-direction:column; }
+.app-header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; border-bottom:1px solid #eef2f9; background: #fff;
+}
+.brand{ display:flex; gap:8px; align-items:center; font-weight:700; }
+.logo-dot{ width:10px; height:10px; border-radius:999px; background: var(--c-primary); box-shadow: 0 0 0 4px #2684fe22; }
+.header-actions{ display:flex; gap:10px; align-items:center; }
+.doctor{ display:flex; gap:6px; align-items:center; padding:6px 10px; border-radius:12px; background: var(--c-secondary); }
+.btn-ghost{ border:1px solid #e6eefb; background:#fff; padding:8px 12px; border-radius:10px; cursor:pointer }
+.btn-ghost:hover{ background:#f8fbff }
+
+.app-footer{ padding:12px 16px; border-top:1px solid #eef2f9; background:#fff; }
+
+.agenda-container{
+  display:grid; grid-template-columns: 1fr 320px; gap:16px;
+  padding:16px; width: min(1200px, 96vw); margin: 0 auto; flex:1;
+}
+
+/* Tarjetas base */
+.card{ background:#fff; border:1px solid #ebf0fa; border-radius:14px; box-shadow: 0 2px 18px rgba(0,0,0,.04); }
+.glass-lite{ background: linear-gradient(135deg, rgba(255,255,255,.6), rgba(255,255,255,.4)); backdrop-filter: blur(8px); border:1px solid rgba(255,255,255,.7); }
+
+/* Panel Paciente destacado */
+.patient-highlight{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; margin-bottom:12px; }
+.ph-left{ display:flex; gap:12px; align-items:center; }
+.avatar{ width:44px; height:44px; border-radius:12px; display:grid; place-items:center; font-weight:800; background: var(--c-secondary); }
+.ph-right{ display:flex; gap:8px; }
+.pill{ padding:6px 10px; background:#f3f7ff; border:1px solid #e6eef9; border-radius:999px; font-size:.85rem; }
+
+/* Schedule */
+.sched{ overflow:hidden; }
+.sched-head{ display:grid; grid-template-columns: 90px repeat(5, 1fr); border-bottom:1px solid #eef2f9; background:#fff; }
+.sched-corner{ border-right:1px solid #eef2f9; }
+.sched-col-head{ padding:10px; text-align:center; font-weight:700; }
+.sched-col-head .dow{ text-transform: capitalize; }
+.sched-col-head .dmy{ color:#7487a2; font-size:.9rem }
+
+.sched-body{ display:grid; grid-template-columns: 90px 1fr; }
+.sched-time-col{ border-right:1px solid #eef2f9; background: #fafcff; }
+.time-cell{ height:64px; display:flex; align-items:flex-start; justify-content:flex-end; padding:8px 10px; color:#7487a2; font-size:.9rem }
+
+.sched-grid{ overflow:auto; }
+.row{ display:grid; grid-template-columns: repeat(5, 1fr); }
+.cell{ height:64px; border-bottom:1px solid #f0f4fb; border-right:1px solid #f0f4fb; padding:6px; position:relative; }
+.cell:last-child{ border-right:0; }
+.appt{
+  height:100%; border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; gap:4px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.06);
+}
+.appt-title{ font-weight:700; }
+.appt-sub{ font-size:.9rem; color:#405a7a99; }
+
+/* Calendario lateral */
+.calendar{ padding:10px; }
+.cal-header{ display:flex; align-items:center; justify-content:space-between; padding:6px 6px 10px; }
+.cal-title{ font-weight:700; text-transform: capitalize; }
+.nav{ border:1px solid #e6eef9; background:#fff; border-radius:8px; padding:4px; cursor:pointer }
+.cal-grid{ display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; }
+.cal-head{ text-align:center; font-size:.85rem; color:#7487a2; padding:6px 0; }
+.cal-cell{
+  height:34px; border:1px solid #e6eef9; border-radius:8px; background:#fff; display:grid; place-items:center; cursor:pointer;
+}
+.cal-cell.today{ border-color: var(--c-primary); box-shadow: 0 0 0 2px #2684fe22 inset; font-weight:700; }
+.cal-cell.empty{ visibility:hidden; }
+
+/* ===== Layout general ===== */
+.page-wrap{
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  /* Fondo azul claro */
+  background:
+    radial-gradient(1200px 600px at 20% -10%, #edf6ffcc, #edf6ff00 60%),
+    linear-gradient(180deg, #edf6ff, #edf6ff);
+}
+
+/* ===== Header y Footer: azul principal ===== */
+.app-header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px;
+  background: #2684fe;                 /* principal */
+  color: #fff;
+  border-bottom: 1px solid #1f6fd1;
+  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+}
+.brand{ display:flex; gap:8px; align-items:center; font-weight:700; }
+.logo-dot{ width:10px; height:10px; border-radius:999px; background:#fff; box-shadow:0 0 0 4px #ffffff33; }
+.header-actions{ display:flex; gap:10px; align-items:center; }
+.doctor{
+  display:flex; gap:6px; align-items:center;
+  padding:6px 10px; border-radius:12px;
+  background: rgba(255,255,255,.16); color:#fff; border:1px solid #ffffff33;
+}
+
+/* Botón logout: variante inversa para header oscuro */
+.app-header .btn-ghost{
+  border:1px solid #ffffff66;
+  background: transparent;
+  color:#fff;
+  padding:8px 12px; border-radius:10px; cursor:pointer;
+}
+.app-header .btn-ghost:hover{ background: rgba(255,255,255,.15); }
+
+/* Footer azul principal */
+.app-footer{
+  padding:12px 16px;
+  background:#2684fe; color:#fff;
+  border-top:1px solid #1f6fd1;
+}
+
+/* ===== Contenido: grilla + calendario blancos con glass suave ===== */
+.agenda-container{
+  display:grid; grid-template-columns: 1fr 320px; gap:16px;
+  padding:16px; width: min(1200px, 96vw); margin: 0 auto; flex:1;
+}
+
+/* Tarjeta base blanca con transparencia sutil */
+.card{
+  background: rgba(255,255,255,.92);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border:1px solid #e8eef9;
+  border-radius:14px;
+  box-shadow: 0 6px 24px rgba(20, 40, 80, .06);
+}
+
+/* Panel de paciente destacado sobre el fondo azul claro */
+.glass-lite{
+  background: linear-gradient(135deg, rgba(255,255,255,.75), rgba(255,255,255,.55));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border:1px solid #e8eef9;
+  border-radius:14px;
+}
+
+/* ===== Schedule (grilla) ===== */
+.sched{ overflow:hidden; }
+.sched-head{
+  display:grid; grid-template-columns: 90px repeat(5, 1fr);
+  border-bottom:1px solid #e8eef9; background:#fff;
+}
+.sched-corner{ border-right:1px solid #e8eef9; }
+.sched-col-head{ padding:10px; text-align:center; font-weight:700; }
+.sched-col-head .dow{ text-transform: capitalize; }
+.sched-col-head .dmy{ color:#7487a2; font-size:.9rem }
+
+.sched-body{ display:grid; grid-template-columns: 90px 1fr; background:#fff; }
+.sched-time-col{ border-right:1px solid #e8eef9; background: #fafcff; }
+.time-cell{ height:64px; display:flex; align-items:flex-start; justify-content:flex-end; padding:8px 10px; color:#7487a2; font-size:.9rem }
+
+.sched-grid{ overflow:auto; }
+.row{ display:grid; grid-template-columns: repeat(5, 1fr); background:#fff; }
+.cell{
+  height:64px; border-bottom:1px solid #f0f4fb; border-right:1px solid #f0f4fb;
+  padding:6px; position:relative;
+}
+.cell:last-child{ border-right:0; }
+
+/* Cards de turnos en los cuatro colores pastel */
+.appt{
+  height:100%; border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; gap:4px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.06);
+}
+.appt-title{ font-weight:700; }
+.appt-sub{ font-size:.9rem; color:#405a7a99; }
+
+/* ===== Calendario lateral (blanco/transparente) ===== */
+.calendar{ padding:10px; }
+.cal-header{ display:flex; align-items:center; justify-content:space-between; padding:6px 6px 10px; }
+.cal-title{ font-weight:700; text-transform: capitalize; }
+.nav{ border:1px solid #e6eef9; background: rgba(255,255,255,.9); border-radius:8px; padding:4px; cursor:pointer; }
+.nav:hover{ background:#fff; }
+
+.cal-grid{ display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; }
+.cal-head{ text-align:center; font-size:.85rem; color:#7487a2; padding:6px 0; }
+.cal-cell{
+  height:34px; border:1px solid #e6eef9; border-radius:8px;
+  background: rgba(255,255,255,.92);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  display:grid; place-items:center; cursor:pointer;
+}
+.cal-cell.today{ border-color: var(--c-primary); box-shadow: 0 0 0 2px #2684fe22 inset; font-weight:700; }
+.cal-cell.empty{ visibility:hidden; }
+
+/* Header de la grilla: fondo azul, texto blanco */
+.sched-head{
+  display:grid; grid-template-columns: 90px repeat(5, 1fr);
+  background: var(--c-primary);
+  color:#fff;
+  border-bottom: none;
+}
+.sched-corner{ background: var(--c-primary); border-right:none; }
+.sched-col-head{ padding:10px; text-align:center; font-weight:700; }
+.sched-col-head .dow,
+.sched-col-head .dmy{ color:#fff; }
+
+/* Columna izquierda de horas en azul y texto blanco */
+.sched-body{ display:grid; grid-template-columns: 90px 1fr; }
+.sched-time-col{
+  background: #31629e;
+  border-right:none;
+}
+.time-cell{
+  height:64px; display:flex; align-items:flex-start; justify-content:flex-end;
+  padding:8px 10px; color:#fff; font-size:.9rem;
+  /* líneas divisorias visibles sobre azul */
+  border-bottom: 1px solid color-mix(in srgb, #ffffff 25%, var(--c-primary));
+}
+
+/* Borde superior usando variable CSS --edge */
+.appt{
+  position:relative;
+  height:100%;
+  border-radius:10px;
+  padding:8px 10px;
+  display:flex; flex-direction:column; gap:4px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.06);
+  border-top: 4px solid var(--edge, transparent);
+}
+/* CELDA: apilar cards con espacio */
+.cell{
+  height:64px;                 /* seguimos usando 1 hora = 64px */
+  border-bottom:1px solid #f0f4fb;
+  border-right:1px solid #f0f4fb;
+  padding:6px;
+  position:relative;
+
+  display:flex;                 /* ⬅ apilado vertical */
+  flex-direction:column;
+  gap:12px;                     /* ⬅ MÁS ESPACIO ENTRE CARDS (ajusta a gusto) */
+}
+
+/* CARD: que no ocupe todo el alto de la celda */
+.appt{
+  height:auto;                  /* ⬅ antes estaba en 100% */
+  min-height:46px;              /* alto mínimo agradable */
+  border-radius:10px;
+  padding:8px 10px;
+  display:flex; flex-direction:column; gap:4px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.06);
+  border-top: 4px solid var(--edge, transparent); /* tu borde superior */
+}
+
+/* Si querés un poquito menos o más espacio:
+   cambia el gap de .cell (p.ej. 8px / 16px) */
+   /* ===== Tamaños de agenda (tuneables) ===== */
+:root{
+  --row-h: 80px;         /* alto de cada hora (antes 64px) */
+  --cell-gap: 16px;      /* separación vertical entre cards dentro de una celda */
+  --appt-min-h: 58px;    /* alto mínimo de cada card */
+  --appt-pad-y: 10px;    /* padding vertical de la card */
+  --appt-pad-x: 12px;    /* padding horizontal de la card */
+}
+
+/* Columna de horas: que coincida con la grilla */
+.time-cell{
+  height: var(--row-h);
+}
+
+/* Celdas de la grilla: más altas y con más aire entre cards */
+.cell{
+  height: var(--row-h);
+  border-bottom:1px solid #f0f4fb;
+  border-right:1px solid #f0f4fb;
+  padding:6px;
+  position:relative;
+
+  display:flex;
+  flex-direction:column;
+  gap: var(--cell-gap);
+  /* opcional si algún horario tiene MUCHAS cards:
+     overflow-y:auto; scrollbar-gutter: stable both-edges; */
+}
+
+/* Cards más altas */
+.appt{
+  height: auto;                   /* no ocupa 100% del slot */
+  min-height: var(--appt-min-h);
+  padding: var(--appt-pad-y) var(--appt-pad-x);
+  border-radius:10px;
+  display:flex; flex-direction:column; gap:6px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.06);
+  border-top: 4px solid var(--edge, transparent); /* borde superior que ya agregamos */
+}
+
+/* Tipos dentro de la card: un toque más de legibilidad */
+.appt-title{ font-weight:700; line-height:1.15; }
+.appt-sub{ font-size:.92rem; color:#405a7a99; line-height:1.15; }
+
+/* Layout de Secretaría: 3 columnas (ABM | Grilla | Calendario) */
+.agenda-secretaria{
+  grid-template-columns: 360px 1fr 320px;
+}
+
+/* Panel ABM */
+.abm-side{ padding:12px; }
+.abm-panel .form select,
+.abm-panel .form input{ background:#fff; }
+.abm-panel .list-head{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 2px; margin-top:8px; border-top:1px solid #e8eef9;
+}
+.abm-list{ list-style:none; padding:0; margin:8px 0 0; display:grid; gap:8px; }
+.abm-list .row{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 12px; background:#fff; border:1px solid #ebf0fa; border-radius:10px;
+}
+.row-inactive{ opacity:.6; }
+.checkbox{ display:flex; align-items:center; gap:6px; cursor:pointer; }
+
+.row-actions{ display:flex; align-items:center; gap:8px; }
+.btn-mini{
+  border:1px solid #e6eef9; background:#fff; border-radius:8px; padding:6px; cursor:pointer;
+}
+.btn-mini:hover{ background:#f5f9ff; }
+/* ====== Secretaría: más ancho para la grilla y sidebars a los extremos ====== */
+
+/* Contenedor general de la agenda: más ancho total y menos márgenes laterales */
+.agenda-container{
+  width: min(1400px, 98vw);      /* antes ~1200px */
+  margin: 0 auto;
+  gap: 20px;                      /* separación entre columnas */
+}
+
+/* Layout específico de Secretaría: ABM | GRILLA (grande) | CALENDARIO */
+.agenda-secretaria{
+  grid-template-columns: 320px minmax(820px, 1fr) 320px;  /* grilla más ancha */
+}
+
+/* Zonas laterales pegadas a los extremos visuales */
+.agenda-secretaria .abm-side{ margin-left: 0; }
+.agenda-secretaria .agenda-side{ margin-right: 0; }
+
+/* Grilla ocupa más, sin comprimir el contenido interno */
+.sched{ width: 100%; }
+
+/* Encabezados de la grilla: que el texto no “salte” por falta de espacio */
+.sched-col-head{ white-space: nowrap; }
+
+/* ====== Responsive fino ====== */
+@media (max-width: 100px){
+  .agenda-container{ width: min(120px, 98vw); }
+  .agenda-secretaria{ grid-template-columns: 100px minmax(100px, 1fr) 100px; }
+}
+@media (max-width: 500px){
+  .agenda-secretaria{ grid-template-columns: 100px minmax(640px, 1fr) 180px; }
+}
+@media (max-width: 100px){
+  /* En pantallas medianas, priorizamos grilla */
+  .agenda-secretaria{
+    grid-template-columns: 1fr;          /* stack */
+    grid-template-rows: auto auto auto;  /* ABM, grilla, calendario */
+  }
+  .abm-side, .agenda-side{ order: 1; }
+  .agenda-main{ order: 0; }
+}
+/* === Extremos al ras (máx 10px) === */
+.agenda-container{
+  width: 100vw;            /* ocupa todo el ancho de la ventana */
+  max-width: none;         /* sin límite */
+  margin: 0;               /* sin márgenes centrales */
+  padding: 0 10px;         /* borde lateral máx 10px */
+  gap: 20px;               /* separación entre columnas */
+  box-sizing: border-box;  /* el padding cuenta dentro del ancho */
+}
+
+/* Secretaría: columnas más amplias con grilla dominante */
+.agenda-secretaria{
+  grid-template-columns: 340px minmax(0, 1fr) 340px;
+}
+
+/* Asegura que la grilla use TODO el espacio disponible */
+.agenda-main, .sched{ width: 100%; }
+
+/* Evita que los headers se corten cuando estamos al ras */
+.sched-col-head{ white-space: nowrap; }
+
+/* Responsive fino: cuando falte espacio, apilamos para no forzar scroll horizontal */
+@media (max-width: 1100px){
+  .agenda-secretaria{
+    grid-template-columns: 1fr;     /* ABM, grilla y calendario en stack */
+  }
+  .agenda-side{ margin-top: 120px; }
+}
+/* Extremos con 10px también arriba */
+.agenda-container{
+  width: 100vw;
+  max-width: none;
+  margin: 0;
+  padding: 10px 10px 0 10px;  /* ⬅ antes 0 10px; ahora agrega 10px arriba */
+  gap: 20px;
+  box-sizing: border-box;
+}
+
+/* (opcional) un poco de aire abajo también */
+.page-wrap{
+  padding-bottom: 10px;
+}
+.container-narrow{ width:min(900px, 96vw); margin:10px auto; }
+.list-turnos{ list-style:none; padding:0; margin:12px 0; display:grid; gap:10px; }
+.turno-item{ display:flex; align-items:center; gap:16px; padding:12px; }
+.ti-left{ width:220px; }
+.ti-date{ font-weight:700; text-transform: capitalize; }
+.ti-hour{ font-size:1.05rem; color:#0e1b2b; }
+.ti-doctor{ font-weight:700; }
+
+/* ===== Layout principal compactado ===== */
+.page-wrap{ min-height:100dvh; display:flex; flex-direction:column; padding-bottom:10px;
+  background: radial-gradient(1200px 600px at 20% -10%, #edf6ffcc, #edf6ff00 60%), linear-gradient(180deg,#edf6ff,#edf6ff);
+}
+.agenda-container{ width:100vw; max-width:none; margin:0; padding:10px 10px 0; gap:20px; box-sizing:border-box;
+  display:grid;
+}
+.agenda-secretaria{ grid-template-columns:340px minmax(0,1fr) 340px; }
+.agenda-main,.sched{ width:100%; }
+
+/* Header/ Footer */
+.app-header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px;
+  background:#2684fe; color:#fff; border-bottom:1px solid #1f6fd1; box-shadow:0 2px 12px rgba(0,0,0,.08);
+}
+.app-header .btn-ghost{ border:1px solid #ffffff66; background:transparent; color:#fff; padding:8px 12px; border-radius:10px; }
+.app-header .btn-ghost:hover{ background:rgba(255,255,255,.15); }
+.app-footer{ padding:12px 16px; background:#2684fe; color:#fff; border-top:1px solid #1f6fd1; }
+
+/* Tarjetas base blancas con glass sutil */
+.card{ background:rgba(255,255,255,.92); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  border:1px solid #e8eef9; border-radius:14px; box-shadow:0 6px 24px rgba(20,40,80,.06);
+}
+
+/* ===== Grilla: tamaños y colores ===== */
+:root{
+  --row-h: 80px;      /* alto por hora */
+  --cell-gap: 16px;   /* separación vertical entre cards en una celda */
+  --appt-min-h: 58px; --appt-pad-y: 10px; --appt-pad-x: 12px;
+}
+.sched-head{ display:grid; grid-template-columns:90px repeat(5,1fr); background:#2684fe; color:#fff; border-bottom:none; }
+.sched-corner{ background:#2684fe; }
+.sched-col-head{ padding:10px; text-align:center; font-weight:700; white-space:nowrap; }
+.sched-body{ display:grid; grid-template-columns:90px 1fr; background:#fff; }
+.sched-time-col{ background:#31629e; border-right:none; }
+.time-cell{ height:var(--row-h); display:flex; align-items:flex-start; justify-content:flex-end; padding:8px 10px; color:#fff; font-size:.9rem;
+  border-bottom:1px solid color-mix(in srgb,#ffffff 25%, #2684fe);
+}
+.row{ display:grid; grid-template-columns:repeat(5,1fr); background:#fff; }
+.cell{ height:var(--row-h); border-bottom:1px solid #f0f4fb; border-right:1px solid #f0f4fb; padding:6px;
+  position:relative; display:flex; flex-direction:column; gap:var(--cell-gap);
+}
+.cell:last-child{ border-right:0; }
+
+/* Cards de turno */
+.appt{ position:relative; height:auto; min-height:var(--appt-min-h); padding:var(--appt-pad-y) var(--appt-pad-x);
+  border-radius:10px; display:flex; flex-direction:column; gap:6px;
+  box-shadow:0 1px 0 rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.06);
+  border-top:4px solid var(--edge, transparent); /* borde superior saturado */
+}
+.appt-title{ font-weight:700; line-height:1.15; }
+.appt-sub{ font-size:.92rem; color:#405a7a99; line-height:1.15; }
+
+/* Panel ABM */
+.abm-side{ padding:12px; }
+.abm-panel .form select, .abm-panel .form input{ background:#fff; }
+.abm-panel .list-head{ display:flex; align-items:center; justify-content:space-between; padding:8px 2px; margin-top:8px; border-top:1px solid #e6eef9; }
+.abm-list{ list-style:none; padding:0; margin:8px 0 0; display:grid; gap:8px; }
+.abm-list .row{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:#fff; border:1px solid #ebf0fa; border-radius:10px; }
+.row-inactive{ opacity:.6; }
+.row-actions{ display:flex; gap:8px; }
+.btn-mini{ border:1px solid #e6eef9; background:#fff; border-radius:8px; padding:6px; cursor:pointer; }
+.btn-mini:hover{ background:#f5f9ff; }
+
+/* Responsive */
+@media (max-width:1100px){
+  .agenda-secretaria{ grid-template-columns:1fr; }
+  .agenda-side{ margin-top:12px; }
+}
+/* ==== Selects generales (ABM, toolbars, etc.) ==== */
+
+.form select,
+.abm-panel select,
+.toolbar select,
+.agenda-side select {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  border-radius: 10px;
+  border: 1px solid #d5e4ff;
+  background: #f4f7ff;
+  color: #1f2933;
+  outline: none;
+  box-sizing: border-box;
+
+  /* opcional, para sacar el estilo nativo “feo” */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+/* efecto focus como el de los inputs */
+.form select:focus,
+.abm-panel select:focus,
+.toolbar select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+}
+
+/* por si algún select es chico en toolbars */
+.toolbar select {
+  max-width: 220px;
+}
+/* ==== Pagos: que respire un poco más ==== */
+
+.pagos-card {
+  width: 100%;         /* que no sea un “tubo” ultra angosto */
+  margin: 12px auto 0;      /* separarlo del calendario y centrarlo en la columna */
+  padding: 18px 20px 16px;  /* más aire interno */
+}
+
+/* separa bien los campos del formulario de pagos */
+.pagos-card .form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* que el selector de tabs tenga un poquito más de margen inferior */
+.pagos-card .segmented {
+  margin-bottom: 14px;
+}
+
+/* inputs / selects dentro de pagos con altura cómoda */
+.pagos-card input,
+.pagos-card select,
+.pagos-card textarea {
+  font-size: 0.9rem;
+  min-height: 34px;
+}
