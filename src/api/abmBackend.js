@@ -19,26 +19,19 @@ export async function modificarUsuario(payload) {
 // Nota: tu colección usa dos variantes de login.
 // La que nos pasaste para ABM: POST http://localhost:41601/API/login
 // También habías usado /API/loginProfesional en otra prueba.
-// Dejamos helper por si lo necesitás:
-export async function loginProfesionalLocal(payload) {
-  return httpJSON('http://localhost:41601/API/login', { method: 'POST', body: payload, noAuth: true });
-}
-export async function loginProfesionalRender(payload) {
-  // Si tenés este endpoint en Render, podés usarlo:
+// Dejamos helper por si lo necesitás.
+export async function loginUsuario(payload) {
   return httpJSON('/API/login', { method: 'POST', body: payload, noAuth: true });
 }
 
 /* ===========================
-   PROFESIONAL(ES)
+   PROFESIONALES
    =========================== */
 export async function traerProfesional(id) {
-  // En Postman hay typo "profecional" en GET.
-  // Probamos ambos por compatibilidad.
-  try {
-    return await httpJSON(`/API/profecional/${id}`, { method: 'GET' });
-  } catch {
-    return httpJSON(`/API/profesional/${id}`, { method: 'GET' });
+  if (!id) {
+    throw new Error('ID de profesional requerido');
   }
+  return httpJSON(`/API/profesional/${id}`, { method: 'GET' });
 }
 export async function crearProfesional(payload) {
   // POST /API/profesional  (Bearer)
@@ -53,6 +46,11 @@ export async function modificarProfesional(payload) {
 export async function listarProfesionales() {
   // Si tu backend expone /API/profesionales, lo usamos; si no, error controlado.
   return httpJSON('/API/profesionales', { method: 'GET' });
+}
+
+// Obras sociales
+export async function listarObrasSociales() {
+  return httpJSON('/API/obras_sociales', { method: 'GET' });
 }
 
 /* ===========================
@@ -70,35 +68,29 @@ export async function modificarPaciente(payload) {
   // PUT /API/paciente  (Bearer)
   return httpJSON('/API/paciente', { method: 'PUT', body: payload });
 }
-
-/* (Opcional) listado si existiera en tu API */
 export async function listarPacientes() {
+  // GET /API/pacientes  (Bearer)
   return httpJSON('/API/pacientes', { method: 'GET' });
 }
 
-/* ===========================
+/* =======================
    TURNOS
-   =========================== */
-export async function traerTurno(id) {
-  // GET /API/turno/:id  (Bearer)
-  return httpJSON(`/API/turno/${id}`, { method: 'GET' });
-}
+   ======================= */
 export async function crearTurno(payload) {
-  // POST /API/turno  (Bearer)
   return httpJSON('/API/turno', { method: 'POST', body: payload });
 }
+export async function traerTurno(id) {
+  return httpJSON(`/API/turno/${id}`, { method: 'GET' });
+}
 export async function modificarTurno(payload) {
-  // PUT /API/turno  (Bearer)
   return httpJSON('/API/turno', { method: 'PUT', body: payload });
 }
 export async function cancelarTurno(id) {
-  // DELETE /API/turno/:id  (Bearer)
   return httpJSON(`/API/turno/${id}`, { method: 'DELETE' });
 }
 
 /* ========= Helpers ========= */
 export function mapPacienteABMForm(p) {
-  // Normaliza campos entre UI y backend
   return {
     id: p.id ?? null,
     nombre: p.nombre ?? '',

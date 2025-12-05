@@ -227,6 +227,32 @@ body {
 .agenda-secretaria {
   margin-bottom: 12px;
 }
+/* =======================================================
+   AGENDA MÉDICO - LAYOUT
+   ======================================================= */
+
+/* Columna principal (paciente + grilla) + columna derecha (calendario) */
+.agenda-container.agenda-medico {
+  width: calc(100vw - 40px);
+  max-width: 1900px;
+  margin: 16px auto 12px;
+  padding: 0;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(340px, 420px);
+  align-items: flex-start;
+}
+
+/* Aseguramos que la columna principal aproveche todo el ancho disponible */
+.agenda-medico .agenda-main {
+  width: 100%;
+  min-width: 0;
+}
+
+/* El calendario usa la card ya existente para mantener el diseño */
+.agenda-medico .agenda-side .calendar {
+  width: 100%;
+}
 
 /* =======================================================
    PACIENTE DESTACADO / PASTILLAS / AVATAR

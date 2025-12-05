@@ -38,18 +38,39 @@ const parseISODateLocal = (iso) => {
 function buildMockAppointments(weekStartISO) {
   const seed = Number(weekStartISO.split("-").join("").slice(-6)) || 202511;
   const specs = [
-    "Terapia Manual",
-    "Kinesiología Convencional",
-    "Ejercicios Adaptados",
+    {
+      patient: "María Gómez",
+      specialty: "Kinesiología Convencional",
+      treatment: "Tratamiento lumbar",
+    },
+    {
+      patient: "Juan Pérez",
+      specialty: "Terapia Manual",
+      treatment: "Tratamiento cervical",
+    },
+    {
+      patient: "Pedro Fernández",
+      specialty: "Ejercicios Adaptados",
+      treatment: "Reentrenamiento de la marcha",
+    },
+    {
+      patient: "Sofía Ruiz",
+      specialty: "Ejercicios Adaptados",
+      treatment: "Fortalecimiento de miembros inferiores",
+    },
+    {
+      patient: "Lucas Díaz",
+      specialty: "Terapia Manual",
+      treatment: "Trabajo de hombro derecho",
+    },
+    {
+      patient: "Ana Torres",
+      specialty: "Kinesiología Convencional",
+      treatment: "Rehabilitación post operatoria",
+    },
   ];
-  const names = [
-    "Juan Pérez",
-    "María Gómez",
-    "Sofía Ruiz",
-    "Lucas Díaz",
-    "Ana Torres",
-    "Pedro Fernández",
-  ];
+
+  const names = specs.map((s) => s.patient);
   const trts = [
     "Terapia Manual",
     "Kinesiología Convencional",
@@ -63,11 +84,6 @@ function buildMockAppointments(weekStartISO) {
       const hour = 8 + ((seed + d * 13 + k * 7) % 9); // 8..16
       const id = `mock-${d}-${k}`;
       const patient = pick(names, d + k);
-      const treatment = pick(trts, d + k);
-      const specialty = pick(specs, d + k);
-      const status = ["pendiente", "confirmado", "cancelado"][
-        (seed + d + k) % 3
-      ];
 
       items.push({
         id,
@@ -75,36 +91,43 @@ function buildMockAppointments(weekStartISO) {
         hour,
         duration: 1,
         patient,
-        treatment,
-        specialty,
+        treatment: pick(trts, d + hour + k),
+        specialty: specs[names.indexOf(patient)]?.specialty || "Kinesiología",
         date: fmt(addDays(parseYMDToLocal(weekStartISO), d)),
-        status,
+        status: "confirmado",
         isReal: false,
       });
     }
   }
+
   return items;
 }
 
-/* ===== Mock de ficha del paciente (solo visual) ===== */
+/* ===== Mock de detalles clínicos de pacientes ===== */
 const MOCK_PATIENT_DETAILS_BY_NAME = {
-  "Juan Pérez": {
-    dni: "30.123.456",
-    edad: "35 años",
-    obraSocial: "OSDE 310",
-    diagnostico: "Lumbalgia crónica.",
-  },
   "María Gómez": {
-    dni: "31.987.654",
-    edad: "29 años",
+    dni: "32.456.789",
+    edad: "34 años",
     obraSocial: "Swiss Medical",
     diagnostico: "Cervicalgia postural.",
   },
-  "Sofía Ruiz": {
-    dni: "32.456.789",
+  "Juan Pérez": {
+    dni: "30.987.654",
     edad: "42 años",
     obraSocial: "Medifé",
-    diagnostico: "Rehabilitación post quirúrgica de rodilla.",
+    diagnostico: "Lumbociatalgia izquierda.",
+  },
+  "Sofía Ruiz": {
+    dni: "35.111.222",
+    edad: "29 años",
+    obraSocial: "OSDE 210",
+    diagnostico: "Inestabilidad de tobillo.",
+  },
+  "Pedro Fernández": {
+    dni: "29.333.444",
+    edad: "45 años",
+    obraSocial: "Galeno",
+    diagnostico: "Dolor lumbar inespecífico.",
   },
   "Lucas Díaz": {
     dni: "28.765.432",
@@ -118,12 +141,6 @@ const MOCK_PATIENT_DETAILS_BY_NAME = {
     obraSocial: "OSDE 210",
     diagnostico: "Tendinitis de hombro.",
   },
-  "Pedro Fernández": {
-    dni: "29.333.444",
-    edad: "45 años",
-    obraSocial: "Galeno",
-    diagnostico: "Dolor lumbar inespecífico.",
-  },
 };
 
 function buildPatientFromAppt(appt) {
@@ -136,7 +153,7 @@ function buildPatientFromAppt(appt) {
   };
 
   return {
-    name: appt.patient,
+    nombre: appt.patient,
     dni: base.dni,
     edad: base.edad,
     obraSocial: base.obraSocial,
@@ -154,20 +171,18 @@ export default function MedicoAgenda() {
   const profesionalIdFromToken =
     payload.professional_id ||
     payload.profesional_id ||
-    payload.idProfesional ||
-    payload.id ||
-    1;
+    payload.profesionalId ||
+    payload.user_id ||
+    null;
 
   const doctorDisplayName =
-    payload.nombre || payload.name || payload.usuario || "Profesional";
+    payload.name ||
+    payload.nombre ||
+    payload.username ||
+    "Profesional de Neffen Consultorios";
 
-  const [anchorDate, setAnchorDate] = useState(() =>
-    startOfWeek(new Date())
-  );
+  const [anchorDate, setAnchorDate] = useState(() => startOfWeek(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => new Date());
-  const [currentAppt, setCurrentAppt] = useState(null);
-  const [currentPatient, setCurrentPatient] = useState(null);
-
   const weekStart = useMemo(() => startOfWeek(anchorDate), [anchorDate]);
   const weekDays = useMemo(
     () => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)),
@@ -192,7 +207,7 @@ export default function MedicoAgenda() {
           weekISO
         );
 
-        const base = startOfWeek(weekStart);
+        const base = parseYMDToLocal(weekISO);
 
         const realMapped = (real || []).map((a, idx) => {
           const fecha = a.fecha || a.date;
@@ -236,6 +251,19 @@ export default function MedicoAgenda() {
     };
   }, [weekStart, profesionalIdFromToken]);
 
+  const [currentAppt, setCurrentAppt] = useState(null);
+  const [currentPatient, setCurrentPatient] = useState(null);
+
+  useEffect(() => {
+    if (appointments.length > 0 && !currentAppt) {
+      const todayISO = fmt(new Date());
+      const todays = appointments.filter((a) => a.date === todayISO);
+      const first = todays[0] || appointments[0];
+      setCurrentAppt(first);
+      setCurrentPatient(buildPatientFromAppt(first));
+    }
+  }, [appointments, currentAppt]);
+
   const logout = () => {
     sessionStorage.removeItem("gt_session_jwt");
     window.location.href = "/login";
@@ -254,14 +282,14 @@ export default function MedicoAgenda() {
     <div className="page-wrap">
       <Header doctorName={doctorDisplayName} onLogout={logout} />
 
+      {/* Layout del profesional: columna principal + calendario a la derecha */}
       <main className="agenda-container agenda-medico">
-        {/* Izquierda: info del paciente actual */}
-        <aside className="patient-side">
-          <PatientInfo appt={currentAppt} patient={currentPatient} />
-        </aside>
-
-        {/* Centro: agenda */}
+        {/* Columna principal: info del paciente + grilla de turnos */}
         <section className="agenda-main">
+          {/* Info del paciente siempre arriba */}
+          <PatientInfo appt={currentAppt} patient={currentPatient} />
+
+          {/* Toolbar de semana */}
           <div className="toolbar card">
             <div className="toolbar-main">
               <div className="toolbar-title">
@@ -274,6 +302,7 @@ export default function MedicoAgenda() {
             </div>
           </div>
 
+          {/* Grilla de turnos en el centro */}
           <ScheduleGrid
             weekDays={weekDays}
             hours={HOURS}
@@ -282,16 +311,18 @@ export default function MedicoAgenda() {
           />
         </section>
 
-        {/* Derecha: mini calendario */}
+        {/* Columna derecha: mini calendario */}
         <aside className="agenda-side">
-          <WeekCalendar
-            anchorDate={weekStart}
-            selectedDate={selectedDate}
-            onSelectDate={(d) => {
-              setSelectedDate(d);
-              setAnchorDate(startOfWeek(d));
-            }}
-          />
+          <div className="card calendar">
+            <WeekCalendar
+              anchorDate={weekStart}
+              selectedDate={selectedDate}
+              onSelectDate={(d) => {
+                setSelectedDate(d);
+                setAnchorDate(startOfWeek(d));
+              }}
+            />
+          </div>
         </aside>
       </main>
 

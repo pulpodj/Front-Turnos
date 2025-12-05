@@ -9,16 +9,16 @@ import {
   modificarProfesional,
   listarProfesionales,
   crearTurno,
-  traerTurno,
   modificarTurno,
   cancelarTurno,
   mapPacienteABMForm,
   mapProfesionalABMForm,
+  listarObrasSociales,
 } from "../api/abmBackend.js";
 import { getBackendToken } from "../api/http.js";
 
-// ===== Obras sociales HARDCODEADAS (hasta que haya backend) =====
-const OBRAS_SOCIALES = [
+// ===== Obras sociales (fallback local) =====
+const OBRAS_SOCIALES_FALLBACK = [
   { id: 1, nombre: "OSDE" },
   { id: 2, nombre: "Swiss Medical" },
   { id: 3, nombre: "PAMI" },
@@ -34,7 +34,7 @@ const startOfWeek = (d) => {
   return x;
 };
 const fmt = (d) => d.toISOString().slice(0, 10);
-const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i); // 8..17
+const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i); // 8..17 (por si después armamos grilla)
 
 export default function ABMPanel({ onDataChanged }) {
   const [tab, setTab] = useState("pacientes"); // 'pacientes' | 'profesionales' | 'turnos'
@@ -54,9 +54,11 @@ export default function ABMPanel({ onDataChanged }) {
   const [loadingPro, setLoadingPro] = useState(false);
   const [errorPro, setErrorPro] = useState("");
 
+  // ===== Obras Sociales (desde backend) =====
+  const [obrasSociales, setObrasSociales] = useState(OBRAS_SOCIALES_FALLBACK);
+
   // ===== Turnos =====
   const [anchor, setAnchor] = useState(() => startOfWeek(new Date()));
-  const [turnoIdSearch, setTurnoIdSearch] = useState("");
   const [formTur, setFormTur] = useState({
     id: null,
     idPaciente: "",
@@ -77,11 +79,26 @@ export default function ABMPanel({ onDataChanged }) {
       try {
         const r = await listarPacientes();
         if (Array.isArray(r)) setPacList(r);
-      } catch {}
+      } catch (e) {
+        console.error("Error listando pacientes", e);
+      }
       try {
         const r = await listarProfesionales();
         if (Array.isArray(r)) setProList(r);
-      } catch {}
+      } catch (e) {
+        console.error("Error listando profesionales", e);
+      }
+      try {
+        const r = await listarObrasSociales();
+        if (Array.isArray(r) && r.length > 0) {
+          setObrasSociales(r);
+        } else {
+          setObrasSociales(OBRAS_SOCIALES_FALLBACK);
+        }
+      } catch (e) {
+        console.error("Error listando obras sociales", e);
+        setObrasSociales(OBRAS_SOCIALES_FALLBACK);
+      }
     })();
   }, [useBackend]);
 
@@ -134,7 +151,9 @@ export default function ABMPanel({ onDataChanged }) {
       try {
         const r = await listarPacientes();
         if (Array.isArray(r)) setPacList(r);
-      } catch {}
+      } catch (e) {
+        console.error("Error recargando pacientes", e);
+      }
       setFormPac(mapPacienteABMForm({}));
       onDataChanged && onDataChanged();
     } catch (err) {
@@ -158,7 +177,9 @@ export default function ABMPanel({ onDataChanged }) {
       try {
         const r = await listarProfesionales();
         if (Array.isArray(r)) setProList(r);
-      } catch {}
+      } catch (e) {
+        console.error("Error recargando profesionales", e);
+      }
       setFormPro(mapProfesionalABMForm({}));
       onDataChanged && onDataChanged();
     } catch (err) {
@@ -168,7 +189,7 @@ export default function ABMPanel({ onDataChanged }) {
     }
   }
 
-  // ===== TURNOS: CRUD por ID =====
+  // ===== TURNOS: CRUD =====
   async function submitTurno(e) {
     e.preventDefault();
     setErrorTur("");
@@ -195,31 +216,6 @@ export default function ABMPanel({ onDataChanged }) {
       onDataChanged && onDataChanged();
     } catch (err) {
       setErrorTur(err.message || "Error al guardar turno");
-    } finally {
-      setLoadingTur(false);
-    }
-  }
-
-  async function buscarTurnoPorId() {
-    setErrorTur("");
-    setLoadingTur(true);
-    try {
-      const t = await traerTurno(turnoIdSearch);
-      if (t) {
-        setFormTur({
-          id: t.id ?? null,
-          idPaciente: t.idPaciente ?? t.paciente_id ?? "",
-          idProfecional:
-            t.idProfecional ?? t.profesional_id ?? t.profecional_id ?? "",
-          fecha: t.fecha ?? "",
-          horaIni: t.horaIni ?? t.hora_inicio ?? "",
-          horaFin: t.horaFin ?? t.hora_fin ?? "",
-          obs: t.obs ?? t.observaciones ?? "",
-          estado: t.estado ?? "pendiente",
-        });
-      }
-    } catch (err) {
-      setErrorTur(err.message || "No se pudo traer el turno");
     } finally {
       setLoadingTur(false);
     }
@@ -281,30 +277,6 @@ export default function ABMPanel({ onDataChanged }) {
       {tab === "pacientes" && (
         <>
           <form className="form" onSubmit={submitPaciente}>
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
-                Buscar por nombre
-                <input
-                  placeholder="Ej: Santiago Aimar"
-                  value={pacNombreSearch}
-                  onChange={(e) => setPacNombreSearch(e.target.value)}
-                />
-              </label>
-              <label style={{ flex: 1 }}>
-                Seleccionar paciente
-                <select
-                  value={formPac.id || ""}
-                  onChange={(e) => seleccionarPaciente(e.target.value)}
-                >
-                  <option value="">-- Seleccionar paciente --</option>
-                  {pacientesFiltrados.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
 
             <label>
               Nombre
@@ -379,7 +351,7 @@ export default function ABMPanel({ onDataChanged }) {
                   }
                 >
                   <option value="">-- Seleccionar --</option>
-                  {OBRAS_SOCIALES.map((os) => (
+                  {obrasSociales.map((os) => (
                     <option key={os.id} value={os.id}>
                       {os.nombre}
                     </option>
@@ -676,27 +648,7 @@ export default function ABMPanel({ onDataChanged }) {
               </div>
             </div>
 
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
-                Buscar Turno por ID
-                <input
-                  inputMode="numeric"
-                  placeholder="Ej: 1"
-                  value={turnoIdSearch}
-                  onChange={(e) =>
-                    setTurnoIdSearch(e.target.value.replace(/\D/g, ""))
-                  }
-                />
-              </label>
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={buscarTurnoPorId}
-                disabled={!turnoIdSearch || loadingTur}
-              >
-                <span className="material-symbols-rounded">search</span>
-              </button>
-            </div>
+            {/* 👇 Ya NO está "Buscar Turno por ID" */}
 
             <div className="inline" style={{ gap: 10 }}>
               <label style={{ flex: 1 }}>

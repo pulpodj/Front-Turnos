@@ -27,7 +27,7 @@ export default function Header({ doctorName, onLogout }) {
     <header className="app-header">
       <div className="brand">
         <span className="logo-dot" />
-        <strong>Gestor de Turnos</strong>
+        <strong>Sistema gestor de turnos</strong>
       </div>
       <div className="header-actions">
         <div className="doctor">
