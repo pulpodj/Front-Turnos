@@ -134,3 +134,32 @@ export async function loginColaboradorMock({ user, pass }) {
     return { token, role };
   }
 }
+// Agregar en src/api/mockAuth.js
+
+export async function loginPacientePasswordMock({ user, pass }) {
+  await sleep(450);
+
+  // Mock simple: si no hay pass, falla
+  if (!user || !pass) throw new Error("Usuario y contraseña obligatorios");
+
+  // Si querés una credencial fija para test:
+  // if (String(user) !== "12345678" || pass !== "1234") throw new Error("Credenciales inválidas");
+
+  // IMPORTANTE: payload con idPaciente / id para que MisTurnos no rebote al login
+  // Si querés, esto puede salir de un mock de pacientes luego. Por ahora fijo:
+  const pacienteId = 1;
+
+  const token = makeMockJwt(
+    {
+      sub: String(user),
+      role: "paciente",
+      idPaciente: pacienteId,
+      id: pacienteId,
+    },
+    2 * 3600
+  );
+
+  saveSessionToken(token);
+
+  return { token, role: "paciente" };
+}

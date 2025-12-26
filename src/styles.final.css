@@ -404,6 +404,47 @@ body {
    LOGIN / AUTH
    ======================================================= */
 
+/* Password input con ojito "adentro" del campo */
+.pwd-wrap{
+  position: relative;
+  width: 100%;
+}
+
+.pwd-wrap input{
+  width: 100%;
+  padding-right: 44px; /* espacio para el botón */
+}
+
+.pwd-toggle{
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.55);
+  background: rgba(255,255,255,.55);
+  box-shadow: 0 6px 16px rgba(20, 40, 80, 0.12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #28405e;
+}
+
+.pwd-toggle:hover{
+  background: rgba(255,255,255,.72);
+}
+
+.pwd-toggle:active{
+  transform: translateY(-50%) scale(0.98);
+}
+
+.pwd-toggle .material-symbols-rounded{
+  font-size: 1.15rem;
+}
+
 button.primary {
   min-width: 120px;
   font-size: 1rem;
@@ -489,6 +530,61 @@ button.primary {
   transform: translateY(0);
   box-shadow: 0 1px 3px rgba(15, 35, 70, 0.18);
 }
+
+/* =======================================================
+   ABM EXTENDIDO - PACIENTES
+   ======================================================= */
+
+.abm-extended-shell{
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.abm-extended-card{
+  padding: 14px;
+}
+
+.abm-extended-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.abm-extended-grid{
+  display: grid;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.abm-extended-pane{
+  min-width: 0;
+}
+
+.abm-extended-list{
+  border-left: 1px solid rgba(255,255,255,.45);
+  padding-left: 12px;
+}
+
+.abm-extended-listhead{
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+@media (max-width: 980px){
+  .abm-extended-grid{
+    grid-template-columns: 1fr;
+  }
+  .abm-extended-list{
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid rgba(255,255,255,.45);
+    padding-top: 12px;
+  }
+}
 /* === KILL SCROLL EN PAGOS (override final) === */
 .pagos-panel-wrapper,
 .pagos-panel-wrapper.card {
@@ -523,6 +619,61 @@ button.primary {
   color: #4a5c78;
 }
 
+/* =======================================================
+   ABM EXTENDIDO (Pacientes)
+   ======================================================= */
+
+.abm-extended-shell{
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.abm-extended-card{
+  padding: 14px;
+}
+
+.abm-extended-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.abm-extended-grid{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.abm-extended-pane{
+  min-width: 0;
+}
+
+.abm-extended-list{
+  border-left: 1px solid rgba(40, 64, 94, 0.12);
+  padding-left: 12px;
+}
+
+.abm-extended-listhead{
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+@media (max-width: 1000px){
+  .abm-extended-grid{
+    grid-template-columns: 1fr;
+  }
+  .abm-extended-list{
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid rgba(40, 64, 94, 0.12);
+    padding-top: 12px;
+  }
+}
+
 .pagos-panel .tabs button .material-symbols-rounded {
   font-size: 1rem;
 }
@@ -532,3 +683,385 @@ button.primary {
   color: #fff;
   box-shadow: 0 2px 8px rgba(38, 132, 254, 0.35);
 }
+/* =========================================================
+   SECRETARÍA – priorizar ancho de grilla (notebooks)
+   ========================================================= */
+
+/* Desktop grande (default): ya lo tenías bien */
+
+/* Notebooks / 1440px */
+@media (max-width: 1440px) {
+  .agenda-container.agenda-secretaria {
+    grid-template-columns:
+      minmax(280px, 360px)   /* panel izquierdo */
+      minmax(0, 2.2fr)      /* 🔥 grilla PRIORIDAD */
+      minmax(280px, 360px); /* panel derecho */
+  }
+}
+
+/* Notebooks chicos / 1366px */
+@media (max-width: 1366px) {
+  .agenda-container.agenda-secretaria {
+    grid-template-columns:
+      minmax(2px, 300px)
+      minmax(0, 2.6fr)      /* aún más ancho para la grilla */
+      minmax(240px, 300px);
+    gap: 14px;
+  }
+}
+
+/* Tablets / pantallas chicas */
+@media (max-width: 1100px) {
+  .agenda-container.agenda-secretaria {
+    grid-template-columns: 1fr;
+  }
+
+  /* Orden lógico cuando se apila */
+  .agenda-secretaria .agenda-main {
+    order: 1;
+  }
+  .agenda-secretaria .agenda-side {
+    order: 2;
+  }
+}
+/* =======================================================
+   POPUP ABM PACIENTES (layout + selects consistentes)
+   ======================================================= */
+
+.abm-popup{
+  padding: 14px;
+}
+
+.abm-popup-topbar{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* 2 columnas: form | lista */
+.abm-popup-grid{
+  display: grid;
+  grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+  align-items: start;
+}
+
+.abm-popup-pane{
+  min-width: 0;
+}
+
+/* Separador suave para la lista derecha */
+.abm-popup-listpane{
+  border-left: 1px solid rgba(40, 64, 94, 0.12);
+  padding-left: 12px;
+}
+
+/* Scroll interno para lista */
+.abm-popup-list{
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+/* ✅ Selects con misma estética que inputs */
+.abm-popup .form select{
+  width: 100%;
+  border: 1px solid #dfe6f2;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 1rem;
+  outline: none;
+  background: rgba(255,255,255,.85);
+  color: #0e1b2b;
+}
+
+.abm-popup .form select:focus{
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px #2684fe33;
+}
+
+/* Responsive: en pantallas chicas se apila */
+@media (max-width: 980px){
+  .abm-popup-grid{
+    grid-template-columns: 1fr;
+  }
+  .abm-popup-listpane{
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid rgba(40, 64, 94, 0.12);
+    padding-top: 12px;
+  }
+  .abm-popup-list{
+    max-height: 320px;
+  }
+}
+/* ============ Popup Pacientes (historial clínico) ============ */
+.pacientes-popup{
+  height: calc(100vh - 32px);
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+  padding: 14px;
+}
+
+.pacientes-topbar{
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.pacientes-grid{
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 14px;
+  height: calc(100% - 64px);
+  margin-top: 14px;
+  min-height: 0;
+}
+
+.pacientes-list{
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid rgba(40, 64, 94, 0.12);
+  padding-right: 12px;
+}
+
+.pacientes-list-scroll{
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.pacientes-detail{
+  min-width: 0;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.row--active{
+  outline: 2px solid #2684fe33;
+  background: rgba(255,255,255,0.6);
+}
+
+/* Cards internas para el detalle */
+.card-inner{
+  border: 1px solid rgba(40, 64, 94, 0.10);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,0.65);
+}
+
+.pacientes-cards{
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* Tags */
+.tags{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag{
+  border: 1px solid rgba(40, 64, 94, 0.15);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.7);
+  cursor: pointer;
+}
+
+.tag--active{
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px #2684fe22;
+}
+
+/* Timeline */
+.timeline{
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.timeline-item{
+  border: 1px solid rgba(40, 64, 94, 0.10);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255,255,255,0.55);
+}
+
+/* Selects con estética similar */
+.pacientes-popup select{
+  width: 100%;
+  border: 1px solid #dfe6f2;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 1rem;
+  outline: none;
+  background: rgba(255,255,255,.85);
+  color: #0e1b2b;
+}
+
+.pacientes-popup select:focus{
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px #2684fe33;
+}
+
+/* Responsive */
+@media (max-width: 980px){
+  .pacientes-grid{
+    grid-template-columns: 1fr;
+  }
+  .pacientes-list{
+    border-right: none;
+    padding-right: 0;
+    border-bottom: 1px solid rgba(40, 64, 94, 0.12);
+    padding-bottom: 12px;
+  }
+}/* ============ Historial clínico popup ============ */
+.hc-popup{
+  height: calc(100vh - 32px);
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+  padding: 14px;
+}
+
+.hc-topbar{
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.hc-grid{
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 14px;
+  height: calc(100% - 64px);
+  margin-top: 14px;
+  min-height: 0;
+}
+
+.hc-list{
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid rgba(40, 64, 94, 0.12);
+  padding-right: 12px;
+}
+
+.hc-list-scroll{
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.hc-detail{
+  min-width: 0;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.row--active{
+  outline: 2px solid #2684fe33;
+  background: rgba(255,255,255,0.6);
+}
+
+.card-inner{
+  border: 1px solid rgba(40, 64, 94, 0.10);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,0.65);
+}
+
+.hc-detail-head{
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.hc-textarea{
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  border: 1px solid #dfe6f2;
+  border-radius: 12px;
+  padding: 12px 14px;
+  outline: none;
+  background: rgba(255,255,255,.85);
+  color: #0e1b2b;
+}
+
+.hc-textarea:focus{
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px #2684fe33;
+}
+
+.hc-treat-grid{
+  display: grid;
+  gap: 12px;
+}
+
+.hc-treat-card{
+  border: 1px solid rgba(40, 64, 94, 0.10);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,0.55);
+}
+
+.hc-treat-title{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.hc-row-3{
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr;
+  gap: 10px;
+}
+
+.hc-popup select{
+  width: 100%;
+  border: 1px solid #dfe6f2;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 1rem;
+  outline: none;
+  background: rgba(255,255,255,.85);
+  color: #0e1b2b;
+}
+
+.hc-popup select:focus{
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px #2684fe33;
+}
+
+@media (max-width: 980px){
+  .hc-grid{
+    grid-template-columns: 1fr;
+  }
+  .hc-list{
+    border-right: none;
+    padding-right: 0;
+    border-bottom: 1px solid rgba(40, 64, 94, 0.12);
+    padding-bottom: 12px;
+  }
+  .hc-row-3{
+    grid-template-columns: 1fr;
+  }
+}
+

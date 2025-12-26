@@ -13,7 +13,7 @@ function normalizeTurnosResponse(data) {
   if (!data) return [];
   if (Array.isArray(data)) return data;
   if (Array.isArray(data.turnos)) return data.turnos;
-  if (data.turno) return [data.turno]; // caso "success: true, turno: {...}"
+  if (data.turno) return [data.turno];
   return [];
 }
 
@@ -24,6 +24,40 @@ function parseTimeToMinutes(timeStr) {
   const mm = Number(mmRaw || 0);
   if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
   return hh * 60 + mm;
+}
+
+/** ====== Colores por tratamiento (pedido) ====== */
+function normalizeTratamiento(t) {
+  const s = String(t || "").trim().toLowerCase();
+  if (!s) return "";
+  // tolera variantes comunes
+  if (s.includes("terapia") && s.includes("manual")) return "Terapia Manual";
+  if (s.includes("kinesi") && (s.includes("conv") || s.includes("convencional")))
+    return "Kinesiología Convencional";
+  if (s.includes("ejercicio") && s.includes("adapt")) return "Ejercicios Adaptados";
+  // si viene exacto:
+  if (s === "terapia manual") return "Terapia Manual";
+  if (s === "kinesiología convencional" || s === "kinesiologia convencional")
+    return "Kinesiología Convencional";
+  if (s === "ejercicios adaptados") return "Ejercicios Adaptados";
+  return String(t || "").trim();
+}
+
+function themeByTratamiento(tratamiento) {
+  const t = normalizeTratamiento(tratamiento);
+
+  // Rosado, Verde, Amarillo (glass-friendly)
+  if (t === "Terapia Manual") {
+    return { color: "#ffe3f1", edge: "#ff4fa3" }; // rosado
+  }
+  if (t === "Kinesiología Convencional") {
+    return { color: "#e6ffef", edge: "#2fbf71" }; // verde
+  }
+  if (t === "Ejercicios Adaptados") {
+    return { color: "#fff5d6", edge: "#f2b705" }; // amarillo
+  }
+  // fallback neutro
+  return { color: "#edf6ff", edge: "#2684fe" };
 }
 
 // Convierte un "turno" del backend a la estructura usada por la agenda
@@ -42,14 +76,17 @@ export function mapTurnoToAppointment(t, baseDateForOffset) {
 
   let dayOffset = 0;
   if (baseDateForOffset && fecha) {
-    const base = typeof baseDateForOffset === "string"
-      ? new Date(baseDateForOffset)
-      : baseDateForOffset;
+    const base =
+      typeof baseDateForOffset === "string"
+        ? new Date(baseDateForOffset)
+        : baseDateForOffset;
     const d = new Date(fecha);
     dayOffset = Math.round((d - base) / 86400000);
   }
 
   const estado = (t.estado || "").toLowerCase();
+  const treatment = normalizeTratamiento(t.tratamiento ?? t.treatment ?? "Sesión");
+  const theme = themeByTratamiento(treatment);
 
   return {
     id: t.id,
@@ -57,28 +94,29 @@ export function mapTurnoToAppointment(t, baseDateForOffset) {
     hour,
     duration,
     dayOffset,
-    // IDs
+
     patientId: t.paciente_id ?? t.patient_id ?? t.patientId ?? null,
     doctorId: t.profesional_id ?? t.doctor_id ?? t.doctorId ?? null,
-    // Nombres
-    patient: t.paciente_nombre ?? t.paciente ?? t.patient_name ?? t.patientName ?? "",
-    doctorName: t.profesional_nombre ?? t.doctor ?? t.doctor_name ?? t.doctorName ?? "",
-    // Tratamiento / etiqueta
-    treatment: t.tratamiento ?? t.treatment ?? "Sesión",
-    // Estado
+
+    patient:
+      t.paciente_nombre ?? t.paciente ?? t.patient_name ?? t.patientName ?? "",
+    doctorName:
+      t.profesional_nombre ?? t.doctor ?? t.doctor_name ?? t.doctorName ?? "",
+
+    treatment,
     status: estado || t.estado || "pendiente",
     active: estado !== "cancelado",
-    // Por si después querés ver el crudo:
+
+    // ✅ colores por tratamiento
+    color: theme.color,
+    edge: theme.edge,
+
     raw: t,
   };
 }
 
 /* ===================== SECRETARÍA ===================== */
 
-/**
- * Todos los turnos (de todos los profesionales) para una fecha.
- * wrap de GET /API/turnos?fecha=YYYY-MM-DD
- */
 export async function fetchTurnosSecretariaPorFecha(fecha) {
   const f = fmt(fecha);
   const data = await httpJSON(`/API/turnos?fecha=${encodeURIComponent(f)}`);
@@ -86,10 +124,6 @@ export async function fetchTurnosSecretariaPorFecha(fecha) {
   return turnos.map((t) => mapTurnoToAppointment(t, f));
 }
 
-/**
- * Turnos de la semana (lun–vie) para la secretaria.
- * Opcionalmente filtra por doctorId en el front.
- */
 export async function fetchTurnosSecretariaSemana(anchorISO, doctorId) {
   const base = new Date(anchorISO);
   const days = Array.from({ length: 5 }, (_, i) =>
@@ -101,13 +135,14 @@ export async function fetchTurnosSecretariaSemana(anchorISO, doctorId) {
       try {
         const data = await httpJSON(`/API/turnos?fecha=${encodeURIComponent(f)}`);
         let turnos = normalizeTurnosResponse(data);
+
         if (doctorId) {
           const idNum = Number(doctorId);
           turnos = turnos.filter(
-            (t) =>
-              Number(t.profesional_id ?? t.doctor_id ?? t.doctorId) === idNum
+            (t) => Number(t.profesional_id ?? t.doctor_id ?? t.doctorId) === idNum
           );
         }
+
         return turnos.map((t) => mapTurnoToAppointment(t, days[0]));
       } catch (err) {
         console.error("Error cargando turnos para fecha", f, err);
@@ -121,10 +156,6 @@ export async function fetchTurnosSecretariaSemana(anchorISO, doctorId) {
 
 /* ===================== PACIENTE ===================== */
 
-/**
- * Turnos de un paciente en una fecha dada.
- * wrap de GET /API/turnosCliente?id=ID&fecha=YYYY-MM-DD
- */
 export async function fetchTurnosClientePorFecha(clienteId, fecha) {
   const f = fmt(fecha);
   const path = `/API/turnosCliente?id=${encodeURIComponent(
@@ -137,10 +168,6 @@ export async function fetchTurnosClientePorFecha(clienteId, fecha) {
 
 /* ===================== PROFESIONAL ===================== */
 
-/**
- * Turnos de un profesional en una fecha dada.
- * wrap de GET /API/turnosProfesional?id=ID&fecha=YYYY-MM-DD
- */
 export async function fetchTurnosProfesionalPorFecha(profesionalId, fecha) {
   const f = fmt(fecha);
   const path = `/API/turnosProfesional?id=${encodeURIComponent(
@@ -151,10 +178,6 @@ export async function fetchTurnosProfesionalPorFecha(profesionalId, fecha) {
   return turnos.map((t) => mapTurnoToAppointment(t));
 }
 
-/**
- * Turnos de un profesional en toda una semana (lun–vie).
- * Pensado para alimentar la grilla de MedicoAgenda.
- */
 export async function fetchTurnosProfesionalSemana(profesionalId, anchorISO) {
   const base = new Date(anchorISO);
   const days = Array.from({ length: 5 }, (_, i) =>
@@ -171,13 +194,7 @@ export async function fetchTurnosProfesionalSemana(profesionalId, anchorISO) {
         const turnos = normalizeTurnosResponse(data);
         return turnos.map((t) => mapTurnoToAppointment(t, days[0]));
       } catch (err) {
-        console.error(
-          "Error cargando turnos profesional",
-          profesionalId,
-          "fecha",
-          f,
-          err
-        );
+        console.error("Error cargando turnos profesional", profesionalId, "fecha", f, err);
         return [];
       }
     })

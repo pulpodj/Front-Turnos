@@ -1,54 +1,47 @@
 // src/ui/ScheduleGrid.jsx
-// Grilla semanal de turnos para el médico
+import React, { useMemo } from "react";
 
-// Colores por ESPECIALIDAD (bg + borde en la misma gama)
-const SPECIALTY_STYLE = {
-  "Terapia Manual": {
-    bg: "#FFF6D9",
-    edge: "#F3C46A",
-  },
-  "Kinesiología Convencional": {
-    bg: "#E8F3FF",
-    edge: "#6FA7F3",
-  },
-  "Ejercicios Adaptados": {
-    bg: "#EAFBF0",
-    edge: "#5AC18E",
-  },
-  default: {
-    bg: "#EDF6FF",
-    edge: "#7FA6E6",
-  },
-};
+export default function ScheduleGrid(props) {
+  const weekDays = Array.isArray(props.weekDays) ? props.weekDays : [];
+  const hours = Array.isArray(props.hours) ? props.hours : [];
+  const items = Array.isArray(props.items) ? props.items : [];
+  const onSelectAppt = typeof props.onSelectAppt === "function" ? props.onSelectAppt : null;
 
-function styleBySpecialty(spec) {
-  return SPECIALTY_STYLE[spec] || SPECIALTY_STYLE.default;
-}
+  const buckets = useMemo(() => {
+    const out = Array.from({ length: 5 }, () => ({}));
+    for (let d = 0; d < 5; d++) {
+      for (const h of hours) out[d][h] = [];
+    }
+    for (const it of items) {
+      const day = Number(it.dayOffset);
+      const hour = Number(it.hour);
+      if (!Number.isFinite(day) || day < 0 || day > 4) continue;
+      if (!Number.isFinite(hour)) continue;
+      if (!out[day][hour]) out[day][hour] = [];
+      out[day][hour].push(it);
+    }
+    return out;
+  }, [items, hours]);
 
-export default function ScheduleGrid({
-  weekDays,
-  hours,
-  items,
-  onSelectAppt,
-}) {
-  const map = new Map();
-  items.forEach((it) => {
-    const key = `${it.dayOffset}-${it.hour}`;
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(it);
-  });
+  if (weekDays.length === 0 || hours.length === 0) {
+    return (
+      <div className="card" style={{ padding: 12 }}>
+        <span className="muted">Cargando grilla…</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="sched card">
+    <div className="card sched">
       <div className="sched-head">
         <div className="sched-corner" />
-        {weekDays.map((d, i) => (
-          <div key={i} className="sched-col-head">
+        {weekDays.map((d, idx) => (
+          <div key={idx} className="sched-col-head">
             <div className="dow">
-              {d.toLocaleDateString("es-AR", { weekday: "short" })}
+              {d.toLocaleDateString("es-AR", { weekday: "long" })}
             </div>
             <div className="dmy">
-              {d.getDate()}/{d.getMonth() + 1}
+              {d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })}
             </div>
           </div>
         ))}
@@ -66,40 +59,30 @@ export default function ScheduleGrid({
         <div className="sched-grid">
           {hours.map((h) => (
             <div key={h} className="row">
-              {weekDays.map((_, dayIdx) => {
-                const key = `${dayIdx}-${h}`;
-                const cellItems = map.get(key) || [];
-                if (!cellItems.length) {
-                  return (
-                    <div key={key} className="cell empty-cell"></div>
-                  );
-                }
-
+              {Array.from({ length: 5 }, (_, day) => {
+                const cellItems = buckets?.[day]?.[h] || [];
                 return (
-                  <div key={key} className="cell">
-                    {cellItems.map((it) => {
-                      const { bg, edge } = styleBySpecialty(
-                        it.specialty || it.treatment
-                      );
-
-                      return (
-                        <button
-                          key={it.id}
-                          type="button"
-                          className="appt appt-clickable"
-                          style={{
-                            background: bg,
-                            "--edge": edge,
-                            borderTopColor: edge,
-                          }}
-                          title={`${it.patient} · ${it.treatment}`}
-                          onClick={() => onSelectAppt?.(it)}
-                        >
-                          <div className="appt-title">{it.patient}</div>
-                          <div className="appt-sub">{it.treatment}</div>
-                        </button>
-                      );
-                    })}
+                  <div key={day} className="cell">
+                    {cellItems.map((it) => (
+                      <button
+                        key={it.id}
+                        type="button"
+                        className="appt"
+                        onClick={() => onSelectAppt?.(it)}
+                        style={{
+                          background: it.color,
+                          "--edge": it.edge || it.color,
+                          opacity: it.active === false ? 0.55 : 1,
+                          cursor: onSelectAppt ? "pointer" : "default",
+                          border: "none",
+                          textAlign: "left",
+                        }}
+                        title={it.treatment || ""}
+                      >
+                        <div className="appt-title">{it.patient || "—"}</div>
+                        <div className="appt-sub">{it.treatment || ""}</div>
+                      </button>
+                    ))}
                   </div>
                 );
               })}

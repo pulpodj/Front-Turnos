@@ -6,15 +6,11 @@ import WeekCalendar from "../ui/WeekCalendar.jsx";
 import ScheduleGrid from "../ui/ScheduleGrid.jsx";
 import ABMPanel from "../ui/ABMPanel.jsx";
 import PagosPanel from "../ui/PagosPanel.jsx";
+import ResizableLayout from "../ui/ResizableLayout.jsx";
 
-import {
-  listAppointmentsByWeek,
-  listDoctors as listDoctorsMock,
-} from "../api/secretariaApiMock.js";
 import { fetchTurnosSecretariaSemana } from "../api/turnosBackend.js";
 import { listarProfesionales } from "../api/abmBackend.js";
 import { getBackendToken } from "../api/http.js";
-import { parseYMDToLocal, MS_PER_DAY } from "../utils/date.js";
 
 const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i); // 8..17
 
@@ -43,182 +39,135 @@ export default function Secretaria() {
   );
   const [selectedDate, setSelectedDate] = useState(() => new Date());
 
-  const [doctorId, setDoctorId] = useState(""); // "" = todos
+  const [doctorId, setDoctorId] = useState("");
   const [doctors, setDoctors] = useState([]);
   const [items, setItems] = useState([]);
 
   const useBackend = !!getBackendToken();
 
-  // ===== Cargar lista de profesionales (reales si hay backend, mock de fallback) =====
+  // ✅ Solo backend: profesionales reales
   useEffect(() => {
     (async () => {
-      if (useBackend) {
-        try {
-          const profs = await listarProfesionales();
-          if (Array.isArray(profs) && profs.length > 0) {
-            setDoctors(
-              profs.map((p) => ({
-                id: p.id,
-                name: p.nombre,
-              }))
-            );
-            return; // usamos sólo reales
-          }
-        } catch (err) {
-          console.error(
-            "Error listando profesionales reales, uso mock como fallback:",
-            err
-          );
-        }
+      if (!useBackend) {
+        setDoctors([]);
+        return;
       }
-
-      // Fallback: mock
       try {
-        const mockDocs = await listDoctorsMock();
-        setDoctors(mockDocs);
+        const profs = await listarProfesionales();
+        setDoctors(
+          Array.isArray(profs) ? profs.map((p) => ({ id: p.id, name: p.nombre })) : []
+        );
       } catch (err) {
-        console.error("Error listando profesionales mock:", err);
+        console.error("Error listando profesionales:", err);
         setDoctors([]);
       }
     })();
   }, [useBackend]);
 
   const reload = async () => {
-    const realColors = ["#fff6d9", "#edf6ff", "#edfcf5", "#ffd9ff"];
-    const mockColors = ["#f0e9ff", "#e0f7ff", "#ffe9f0", "#e9ffe5"];
+    if (!useBackend) {
+      setItems([]);
+      return;
+    }
 
-    const base = startOfWeek(weekStart);
-
-    const mapDayOffsetLocal = (ymd) => {
-      const d = parseYMDToLocal(ymd);
-      const diff = Math.round((d - base) / MS_PER_DAY); // 0..4
-      return Math.max(0, Math.min(4, diff));
-    };
-
-    let mappedReal = [];
-    let mappedMock = [];
-
-    // 1) Turnos REALES desde backend
     try {
       const weekISO = fmt(weekStart);
-      // implementá fetchTurnosSecretariaSemana para que respete doctorId:
-      // - sin doctorId: /API/turnos?fecha=...
-      // - con doctorId: /API/turnosProfesional?id=...&fecha=...
+
+      // ✅ Ya viene mapeado con color/edge por tratamiento desde turnosBackend.js
       const realList = await fetchTurnosSecretariaSemana(
         weekISO,
         doctorId || undefined
       );
 
-      mappedReal = (realList || []).map((a, i) => {
-        const fecha = a.fecha || a.date;
-        const dayOffset = fecha ? mapDayOffsetLocal(fecha) : a.dayOffset ?? 0;
-        const hourStr = a.horaIni || a.hora_inicio || a.hora || "08:00";
-        const hour = Number(hourStr.split(":")[0]) || 8;
-
-        return {
-          id: `real-${a.id ?? i}`,
-          dayOffset,
-          hour,
-          duration: a.duration ?? 1,
-          patient: a.paciente_nombre || a.pacienteNombre || a.patient || "",
-          treatment: a.tratamiento || a.treatment || "",
-          color: realColors[i % realColors.length],
-          active: a.estado !== "cancelado",
-          isReal: true,
-        };
-      });
+      setItems(Array.isArray(realList) ? realList : []);
     } catch (err) {
-      console.error("Error cargando turnos reales para Secretaría:", err);
+      console.error("Error cargando turnos:", err);
+      setItems([]);
     }
-
-    // 2) Turnos MOCK (demo) – siguen conviviendo con los reales
-    try {
-      const mockList = await listAppointmentsByWeek(
-        fmt(weekStart),
-        doctorId || undefined
-      );
-
-      mappedMock = (mockList || []).map((a, i) => ({
-        id: `mock-${a.id ?? i}`,
-        dayOffset: a.dayOffset ?? mapDayOffsetLocal(a.date),
-        hour: a.hour,
-        duration: a.duration ?? 1,
-        patient: a.patientName ?? a.patient ?? "",
-        treatment: a.treatment,
-        color: mockColors[i % mockColors.length],
-        active: a.active,
-        isReal: false,
-      }));
-    } catch (err) {
-      console.error("Error cargando turnos mock para Secretaría:", err);
-    }
-
-    setItems([...mappedReal, ...mappedMock]);
   };
 
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart, doctorId]);
+  }, [weekStart, doctorId, useBackend]);
 
   const logout = () => {
-    sessionStorage.removeItem("gt_session_jwt");
+    sessionStorage.removeItem("gt_backend_token");
     window.location.href = "/login";
   };
 
+  const leftPane = (
+    <div className="pane-scroll">
+      <div className="card" style={{ padding: 12 }}>
+        <ABMPanel onDataChanged={reload} />
+      </div>
+    </div>
+  );
+
+  const centerPane = (
+    <div className="pane-scroll">
+      <div
+        className="toolbar card"
+        style={{
+          padding: 10,
+          marginBottom: 10,
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+        }}
+      >
+        <span className="muted">Profesional:</span>
+        <select value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
+          <option value="">Todos</option>
+          {doctors.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid-scroll">
+        <ScheduleGrid weekDays={weekDays} hours={HOURS} items={items} />
+      </div>
+    </div>
+  );
+
+  const rightPane = (
+    <div className="pane-scroll">
+      <div className="card calendar" style={{ marginBottom: 12 }}>
+        <WeekCalendar
+          anchorDate={weekStart}
+          selectedDate={selectedDate}
+          onSelectDate={(d) => {
+            setSelectedDate(d);
+            setAnchorDate(startOfWeek(d));
+          }}
+        />
+      </div>
+      <PagosPanel />
+    </div>
+  );
+
   return (
     <div className="page-wrap">
-      <Header doctorName="Secretaría" onLogout={logout} />
+      <Header
+        doctorName="Secretaría"
+        onLogout={logout}
+        enableHistorialButton={false} // ✅ NUNCA en secretaría
+      />
 
-      <main className="agenda-container agenda-secretaria">
-        {/* Izquierda: ABM */}
-        <aside className="abm-side card">
-          <ABMPanel onDataChanged={reload} />
-        </aside>
-
-        {/* Centro: toolbar + grilla */}
-        <section className="agenda-main">
-          <div
-            className="toolbar card"
-            style={{
-              padding: "10px",
-              marginBottom: "10px",
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-            }}
-          >
-            <span className="muted">Profesional:</span>
-            <select
-              value={doctorId}
-              onChange={(e) => setDoctorId(e.target.value)}
-            >
-              <option value="">Todos</option>
-              {doctors.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <ScheduleGrid weekDays={weekDays} hours={HOURS} items={items} />
-        </section>
-
-        {/* Derecha: calendario + pagos */}
-        <aside className="agenda-side">
-          <div className="card calendar">
-            <WeekCalendar
-              anchorDate={weekStart}
-              selectedDate={selectedDate}
-              onSelectDate={(d) => {
-                setSelectedDate(d);
-                setAnchorDate(startOfWeek(d));
-              }}
-            />
-          </div>
-          <PagosPanel />
-        </aside>
+      <main className="agenda-container" style={{ width: "100vw", maxWidth: "none" }}>
+        <ResizableLayout
+          left={leftPane}
+          center={centerPane}
+          right={rightPane}
+          defaultSizes={[28, 50, 22]}
+          minLeftPx={280}
+          minCenterPx={560}
+          minRightPx={300}
+          storageKey="gt_secretaria_split_v1"
+        />
       </main>
 
       <Footer />

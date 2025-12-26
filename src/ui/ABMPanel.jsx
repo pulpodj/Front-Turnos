@@ -1,18 +1,14 @@
 // src/ui/ABMPanel.jsx
 import { useEffect, useMemo, useState } from "react";
 import {
-  // BACKEND
   crearPaciente,
   modificarPaciente,
   listarPacientes,
-  crearProfesional,
-  modificarProfesional,
   listarProfesionales,
   crearTurno,
   modificarTurno,
   cancelarTurno,
   mapPacienteABMForm,
-  mapProfesionalABMForm,
   listarObrasSociales,
 } from "../api/abmBackend.js";
 import { getBackendToken } from "../api/http.js";
@@ -34,27 +30,22 @@ const startOfWeek = (d) => {
   return x;
 };
 const fmt = (d) => d.toISOString().slice(0, 10);
-const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i); // 8..17 (por si después armamos grilla)
 
 export default function ABMPanel({ onDataChanged }) {
-  const [tab, setTab] = useState("pacientes"); // 'pacientes' | 'profesionales' | 'turnos'
+  const [tab, setTab] = useState("pacientes");
   const useBackend = !!getBackendToken();
 
   // ===== Pacientes =====
   const [pacList, setPacList] = useState([]);
-  const [pacNombreSearch, setPacNombreSearch] = useState("");
+  const [pacNombreSearch, setPacNombreSearch] = useState(""); // (queda, por si más adelante lo querés usar)
   const [formPac, setFormPac] = useState(mapPacienteABMForm({}));
   const [loadingPac, setLoadingPac] = useState(false);
   const [errorPac, setErrorPac] = useState("");
 
-  // ===== Profesionales =====
+  // ===== Profesionales (solo para Turnos) =====
   const [proList, setProList] = useState([]);
-  const [proNombreSearch, setProNombreSearch] = useState("");
-  const [formPro, setFormPro] = useState(mapProfesionalABMForm({}));
-  const [loadingPro, setLoadingPro] = useState(false);
-  const [errorPro, setErrorPro] = useState("");
 
-  // ===== Obras Sociales (desde backend) =====
+  // ===== Obras Sociales =====
   const [obrasSociales, setObrasSociales] = useState(OBRAS_SOCIALES_FALLBACK);
 
   // ===== Turnos =====
@@ -62,7 +53,7 @@ export default function ABMPanel({ onDataChanged }) {
   const [formTur, setFormTur] = useState({
     id: null,
     idPaciente: "",
-    idProfecional: "", // mantengo el nombre EXACTO de tu API (“Profecional”)
+    idProfecional: "",
     fecha: fmt(new Date()),
     horaIni: "08:00",
     horaFin: "09:00",
@@ -72,9 +63,10 @@ export default function ABMPanel({ onDataChanged }) {
   const [loadingTur, setLoadingTur] = useState(false);
   const [errorTur, setErrorTur] = useState("");
 
-  // ===== Carga inicial de listados =====
+  // ===== Carga inicial =====
   useEffect(() => {
     if (!useBackend) return;
+
     (async () => {
       try {
         const r = await listarPacientes();
@@ -82,19 +74,20 @@ export default function ABMPanel({ onDataChanged }) {
       } catch (e) {
         console.error("Error listando pacientes", e);
       }
+
+      // ✅ Se mantiene aunque no haya pestaña "Profesionales", porque Turnos lo necesita
       try {
         const r = await listarProfesionales();
         if (Array.isArray(r)) setProList(r);
       } catch (e) {
         console.error("Error listando profesionales", e);
+        setProList([]);
       }
+
       try {
         const r = await listarObrasSociales();
-        if (Array.isArray(r) && r.length > 0) {
-          setObrasSociales(r);
-        } else {
-          setObrasSociales(OBRAS_SOCIALES_FALLBACK);
-        }
+        if (Array.isArray(r) && r.length > 0) setObrasSociales(r);
+        else setObrasSociales(OBRAS_SOCIALES_FALLBACK);
       } catch (e) {
         console.error("Error listando obras sociales", e);
         setObrasSociales(OBRAS_SOCIALES_FALLBACK);
@@ -102,58 +95,32 @@ export default function ABMPanel({ onDataChanged }) {
     })();
   }, [useBackend]);
 
-  // ===== Memo para filtrar por nombre =====
-  const pacientesFiltrados = useMemo(
-    () =>
-      pacList.filter((p) =>
-        pacNombreSearch
-          ? (p.nombre || "")
-              .toLowerCase()
-              .includes(pacNombreSearch.toLowerCase())
-          : true
-      ),
-    [pacList, pacNombreSearch]
-  );
+  // ===== Memo filtros (queda por si lo querés después; NO se renderiza lista) =====
+  useMemo(() => {
+    return pacList.filter((p) =>
+      pacNombreSearch
+        ? (p.nombre || "").toLowerCase().includes(pacNombreSearch.toLowerCase())
+        : true
+    );
+  }, [pacList, pacNombreSearch]);
 
-  const profesionalesFiltrados = useMemo(
-    () =>
-      proList.filter((p) =>
-        proNombreSearch
-          ? (p.nombre || "")
-              .toLowerCase()
-              .includes(proNombreSearch.toLowerCase())
-          : true
-      ),
-    [proList, proNombreSearch]
-  );
-
-  function seleccionarPaciente(id) {
-    const p = pacList.find((x) => String(x.id) === String(id));
-    if (p) setFormPac(mapPacienteABMForm(p));
-  }
-
-  function seleccionarProfesional(id) {
-    const p = proList.find((x) => String(x.id) === String(id));
-    if (p) setFormPro(mapProfesionalABMForm(p));
-  }
-
-  // ===== PACIENTES: CRUD =====
+  // ===== CRUD Pacientes =====
   async function submitPaciente(e) {
     e.preventDefault();
     setErrorPac("");
     setLoadingPac(true);
     try {
-      if (formPac.id) {
-        await modificarPaciente(formPac);
-      } else {
-        await crearPaciente(formPac);
-      }
+      if (formPac.id) await modificarPaciente(formPac);
+      else await crearPaciente(formPac);
+
+      // recargar lista (necesaria para el select de turnos)
       try {
         const r = await listarPacientes();
         if (Array.isArray(r)) setPacList(r);
-      } catch (e) {
-        console.error("Error recargando pacientes", e);
+      } catch (e2) {
+        console.error("Error recargando pacientes", e2);
       }
+
       setFormPac(mapPacienteABMForm({}));
       onDataChanged && onDataChanged();
     } catch (err) {
@@ -163,33 +130,7 @@ export default function ABMPanel({ onDataChanged }) {
     }
   }
 
-  // ===== PROFESIONALES: CRUD =====
-  async function submitProfesional(e) {
-    e.preventDefault();
-    setErrorPro("");
-    setLoadingPro(true);
-    try {
-      if (formPro.id) {
-        await modificarProfesional(formPro);
-      } else {
-        await crearProfesional(formPro);
-      }
-      try {
-        const r = await listarProfesionales();
-        if (Array.isArray(r)) setProList(r);
-      } catch (e) {
-        console.error("Error recargando profesionales", e);
-      }
-      setFormPro(mapProfesionalABMForm({}));
-      onDataChanged && onDataChanged();
-    } catch (err) {
-      setErrorPro(err.message || "Error al guardar profesional");
-    } finally {
-      setLoadingPro(false);
-    }
-  }
-
-  // ===== TURNOS: CRUD =====
+  // ===== CRUD Turnos =====
   async function submitTurno(e) {
     e.preventDefault();
     setErrorTur("");
@@ -200,6 +141,7 @@ export default function ABMPanel({ onDataChanged }) {
         idPaciente: Number(formTur.idPaciente),
         idProfecional: Number(formTur.idProfecional),
       };
+
       if (formTur.id) await modificarTurno(payload);
       else await crearTurno(payload);
 
@@ -213,6 +155,7 @@ export default function ABMPanel({ onDataChanged }) {
         obs: "",
         estado: "pendiente",
       });
+
       onDataChanged && onDataChanged();
     } catch (err) {
       setErrorTur(err.message || "Error al guardar turno");
@@ -227,6 +170,7 @@ export default function ABMPanel({ onDataChanged }) {
     setLoadingTur(true);
     try {
       await cancelarTurno(formTur.id);
+
       setFormTur({
         id: null,
         idPaciente: "",
@@ -237,6 +181,7 @@ export default function ABMPanel({ onDataChanged }) {
         obs: "",
         estado: "pendiente",
       });
+
       onDataChanged && onDataChanged();
     } catch (err) {
       setErrorTur(err.message || "No se pudo cancelar el turno");
@@ -246,38 +191,31 @@ export default function ABMPanel({ onDataChanged }) {
   }
 
   return (
-    <div
-      className="abm-panel"
-      style={{ maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
-    >
+    <div className="abm-panel abm-scroll">
+      {/* ✅ Tabs: solo Pacientes + Turnos */}
       <div className="segmented" style={{ marginBottom: 12 }}>
         <button
+          type="button"
           className={tab === "pacientes" ? "active" : ""}
           onClick={() => setTab("pacientes")}
         >
           <span className="material-symbols-rounded">group</span> Pacientes
         </button>
+
         <button
-          className={tab === "profesionales" ? "active" : ""}
-          onClick={() => setTab("profesionales")}
-        >
-          <span className="material-symbols-rounded">stethoscope</span>{" "}
-          Profesionales
-        </button>
-        <button
+          type="button"
           className={tab === "turnos" ? "active" : ""}
           onClick={() => setTab("turnos")}
         >
-          <span className="material-symbols-rounded">calendar_month</span>{" "}
-          Turnos
+          <span className="material-symbols-rounded">calendar_month</span> Turnos
         </button>
       </div>
 
       {/* ===================== PACIENTES ===================== */}
       {tab === "pacientes" && (
         <>
+          {/* ❌ SIN LISTA DE PACIENTES (solo formulario) */}
           <form className="form" onSubmit={submitPaciente}>
-
             <label>
               Nombre
               <input
@@ -289,8 +227,8 @@ export default function ABMPanel({ onDataChanged }) {
               />
             </label>
 
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
+            <div className="abm-row-2">
+              <label>
                 DNI
                 <input
                   inputMode="numeric"
@@ -300,7 +238,7 @@ export default function ABMPanel({ onDataChanged }) {
                   }
                 />
               </label>
-              <label style={{ flex: 1 }}>
+              <label>
                 Celular
                 <input
                   inputMode="tel"
@@ -323,8 +261,8 @@ export default function ABMPanel({ onDataChanged }) {
               />
             </label>
 
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
+            <div className="abm-row-2">
+              <label>
                 Fecha Nacimiento
                 <input
                   type="date"
@@ -337,7 +275,7 @@ export default function ABMPanel({ onDataChanged }) {
                   }
                 />
               </label>
-              <label style={{ flex: 1 }}>
+              <label>
                 Obra Social
                 <select
                   value={formPac.idObraSocial || ""}
@@ -370,8 +308,8 @@ export default function ABMPanel({ onDataChanged }) {
               />
             </label>
 
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
+            <div className="abm-row-2">
+              <label>
                 Usuario
                 <input
                   value={formPac.usuario}
@@ -380,7 +318,7 @@ export default function ABMPanel({ onDataChanged }) {
                   }
                 />
               </label>
-              <label style={{ flex: 1 }}>
+              <label>
                 Clave
                 <input
                   type="password"
@@ -403,6 +341,7 @@ export default function ABMPanel({ onDataChanged }) {
               <button className="primary" disabled={loadingPac}>
                 {formPac.id ? "Guardar cambios" : "Crear paciente"}
               </button>
+
               {formPac.id && (
                 <button
                   type="button"
@@ -415,190 +354,6 @@ export default function ABMPanel({ onDataChanged }) {
               )}
             </div>
           </form>
-
-          {useBackend && pacList.length > 0 && (
-            <>
-              <div className="list-head" style={{ marginTop: 8 }}>
-                <span className="muted">Pacientes ({pacList.length})</span>
-              </div>
-              <ul className="abm-list">
-                {pacList.map((p) => (
-                  <li key={p.id} className="row">
-                    <div>
-                      <strong>{p.nombre}</strong>{" "}
-                      <span className="muted">
-                        · DNI {p.dni || "—"} · {p.mail || "s/email"}
-                      </span>
-                    </div>
-                    <div className="row-actions">
-                      <button
-                        className="btn-mini"
-                        onClick={() => setFormPac(mapPacienteABMForm(p))}
-                      >
-                        <span className="material-symbols-rounded">edit</span>
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </>
-      )}
-
-      {/* ===================== PROFESIONALES ===================== */}
-      {tab === "profesionales" && (
-        <>
-          <form className="form" onSubmit={submitProfesional}>
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
-                Buscar por nombre
-                <input
-                  placeholder="Ej: Milton Neffen"
-                  value={proNombreSearch}
-                  onChange={(e) => setProNombreSearch(e.target.value)}
-                />
-              </label>
-              <label style={{ flex: 1 }}>
-                Seleccionar profesional
-                <select
-                  value={formPro.id || ""}
-                  onChange={(e) => seleccionarProfesional(e.target.value)}
-                >
-                  <option value="">-- Seleccionar profesional --</option>
-                  {profesionalesFiltrados.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label>
-              Nombre
-              <input
-                value={formPro.nombre}
-                onChange={(e) =>
-                  setFormPro((s) => ({ ...s, nombre: e.target.value }))
-                }
-                required
-              />
-            </label>
-            <label>
-              Especialidad
-              <input
-                value={formPro.especialidad}
-                onChange={(e) =>
-                  setFormPro((s) => ({
-                    ...s,
-                    especialidad: e.target.value,
-                  }))
-                }
-              />
-            </label>
-
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
-                Celular
-                <input
-                  inputMode="tel"
-                  value={formPro.celular}
-                  onChange={(e) =>
-                    setFormPro((s) => ({ ...s, celular: e.target.value }))
-                  }
-                />
-              </label>
-              <label style={{ flex: 1 }}>
-                E-mail
-                <input
-                  type="email"
-                  value={formPro.mail}
-                  onChange={(e) =>
-                    setFormPro((s) => ({ ...s, mail: e.target.value }))
-                  }
-                />
-              </label>
-            </div>
-
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
-                Usuario
-                <input
-                  value={formPro.usuario}
-                  onChange={(e) =>
-                    setFormPro((s) => ({ ...s, usuario: e.target.value }))
-                  }
-                />
-              </label>
-              <label style={{ flex: 1 }}>
-                Clave
-                <input
-                  type="password"
-                  value={formPro.clave}
-                  onChange={(e) =>
-                    setFormPro((s) => ({ ...s, clave: e.target.value }))
-                  }
-                />
-              </label>
-            </div>
-
-            {errorPro && (
-              <div className="error">
-                <span className="material-symbols-rounded">error</span>
-                {errorPro}
-              </div>
-            )}
-
-            <div className="inline" style={{ gap: 10 }}>
-              <button className="primary" disabled={loadingPro}>
-                {formPro.id ? "Guardar cambios" : "Crear profesional"}
-              </button>
-              {formPro.id && (
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  onClick={() => setFormPro(mapProfesionalABMForm({}))}
-                  disabled={loadingPro}
-                >
-                  Cancelar
-                </button>
-              )}
-            </div>
-          </form>
-
-          {useBackend && proList.length > 0 && (
-            <>
-              <div className="list-head" style={{ marginTop: 8 }}>
-                <span className="muted">
-                  Profesionales ({proList.length})
-                </span>
-              </div>
-              <ul className="abm-list">
-                {proList.map((p) => (
-                  <li key={p.id} className="row">
-                    <div>
-                      <strong>{p.nombre}</strong>{" "}
-                      <span className="muted">
-                        · {p.especialidad || "s/especialidad"} ·{" "}
-                        {p.mail || "s/email"}
-                      </span>
-                    </div>
-                    <div className="row-actions">
-                      <button
-                        className="btn-mini"
-                        onClick={() =>
-                          setFormPro(mapProfesionalABMForm(p))
-                        }
-                      >
-                        <span className="material-symbols-rounded">edit</span>
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
         </>
       )}
 
@@ -615,17 +370,11 @@ export default function ABMPanel({ onDataChanged }) {
                   onClick={() =>
                     setAnchor(
                       (d) =>
-                        new Date(
-                          d.getFullYear(),
-                          d.getMonth(),
-                          d.getDate() - 7
-                        )
+                        new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7)
                     )
                   }
                 >
-                  <span className="material-symbols-rounded">
-                    chevron_left
-                  </span>
+                  <span className="material-symbols-rounded">chevron_left</span>
                 </button>
                 <button
                   type="button"
@@ -633,34 +382,25 @@ export default function ABMPanel({ onDataChanged }) {
                   onClick={() =>
                     setAnchor(
                       (d) =>
-                        new Date(
-                          d.getFullYear(),
-                          d.getMonth(),
-                          d.getDate() + 7
-                        )
+                        new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7)
                     )
                   }
                 >
-                  <span className="material-symbols-rounded">
-                    chevron_right
-                  </span>
+                  <span className="material-symbols-rounded">chevron_right</span>
                 </button>
               </div>
             </div>
 
-            {/* 👇 Ya NO está "Buscar Turno por ID" */}
-
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
+            {/* Paciente + Profesional */}
+            <div className="abm-row-2">
+              <label>
                 Paciente
                 <select
                   value={formTur.idPaciente || ""}
                   onChange={(e) =>
                     setFormTur((s) => ({
                       ...s,
-                      idPaciente: e.target.value
-                        ? Number(e.target.value)
-                        : "",
+                      idPaciente: e.target.value ? Number(e.target.value) : "",
                     }))
                   }
                   required
@@ -674,7 +414,7 @@ export default function ABMPanel({ onDataChanged }) {
                 </select>
               </label>
 
-              <label style={{ flex: 1 }}>
+              <label>
                 Profesional
                 <select
                   value={formTur.idProfecional || ""}
@@ -699,8 +439,9 @@ export default function ABMPanel({ onDataChanged }) {
               </label>
             </div>
 
-            <div className="inline" style={{ gap: 10 }}>
-              <label style={{ flex: 1 }}>
+            {/* Fecha + horas */}
+            <div className="abm-turnos-fecha-horas">
+              <label>
                 Fecha
                 <input
                   type="date"
@@ -711,7 +452,8 @@ export default function ABMPanel({ onDataChanged }) {
                   required
                 />
               </label>
-              <label style={{ flex: 1 }}>
+
+              <label>
                 Hora inicio
                 <input
                   type="time"
@@ -722,7 +464,8 @@ export default function ABMPanel({ onDataChanged }) {
                   required
                 />
               </label>
-              <label style={{ flex: 1 }}>
+
+              <label>
                 Hora fin
                 <input
                   type="time"
@@ -771,6 +514,7 @@ export default function ABMPanel({ onDataChanged }) {
               <button className="primary" disabled={loadingTur}>
                 {formTur.id ? "Guardar cambios" : "Crear turno"}
               </button>
+
               {formTur.id && (
                 <>
                   <button
@@ -791,6 +535,7 @@ export default function ABMPanel({ onDataChanged }) {
                   >
                     Cancelar
                   </button>
+
                   <button
                     type="button"
                     className="btn-ghost"

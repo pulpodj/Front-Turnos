@@ -7,15 +7,14 @@ import ScheduleGrid from "../ui/ScheduleGrid.jsx";
 import PatientInfo from "../ui/PatientInfo.jsx";
 import { readSession } from "../utils/jwt.js";
 import { fetchTurnosProfesionalSemana } from "../api/turnosBackend.js";
-import { parseYMDToLocal, MS_PER_DAY } from "../utils/date.js";
+import { traerPaciente } from "../api/abmBackend.js";
 
-/* ===== Utilidades de fechas ===== */
-const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i); // 8..17
+const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i);
 
 const startOfWeek = (date) => {
   const d = new Date(date);
   const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day; // lunes
+  const diff = day === 0 ? -6 : 1 - day; // lunes como inicio
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d;
@@ -34,137 +33,25 @@ const parseISODateLocal = (iso) => {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 };
 
-/* ===== Mock de turnos (para demo / relleno) ===== */
-function buildMockAppointments(weekStartISO) {
-  const seed = Number(weekStartISO.split("-").join("").slice(-6)) || 202511;
-  const specs = [
-    {
-      patient: "María Gómez",
-      specialty: "Kinesiología Convencional",
-      treatment: "Tratamiento lumbar",
-    },
-    {
-      patient: "Juan Pérez",
-      specialty: "Terapia Manual",
-      treatment: "Tratamiento cervical",
-    },
-    {
-      patient: "Pedro Fernández",
-      specialty: "Ejercicios Adaptados",
-      treatment: "Reentrenamiento de la marcha",
-    },
-    {
-      patient: "Sofía Ruiz",
-      specialty: "Ejercicios Adaptados",
-      treatment: "Fortalecimiento de miembros inferiores",
-    },
-    {
-      patient: "Lucas Díaz",
-      specialty: "Terapia Manual",
-      treatment: "Trabajo de hombro derecho",
-    },
-    {
-      patient: "Ana Torres",
-      specialty: "Kinesiología Convencional",
-      treatment: "Rehabilitación post operatoria",
-    },
-  ];
-
-  const names = specs.map((s) => s.patient);
-  const trts = [
-    "Terapia Manual",
-    "Kinesiología Convencional",
-    "Ejercicios Adaptados",
-  ];
-  const pick = (arr, k) => arr[(seed + k) % arr.length];
-
-  const items = [];
-  for (let d = 0; d < 5; d++) {
-    for (let k = 0; k < 2 + ((seed + d + k) % 3); k++) {
-      const hour = 8 + ((seed + d * 13 + k * 7) % 9); // 8..16
-      const id = `mock-${d}-${k}`;
-      const patient = pick(names, d + k);
-
-      items.push({
-        id,
-        dayOffset: d,
-        hour,
-        duration: 1,
-        patient,
-        treatment: pick(trts, d + hour + k),
-        specialty: specs[names.indexOf(patient)]?.specialty || "Kinesiología",
-        date: fmt(addDays(parseYMDToLocal(weekStartISO), d)),
-        status: "confirmado",
-        isReal: false,
-      });
-    }
-  }
-
-  return items;
-}
-
-/* ===== Mock de detalles clínicos de pacientes ===== */
-const MOCK_PATIENT_DETAILS_BY_NAME = {
-  "María Gómez": {
-    dni: "32.456.789",
-    edad: "34 años",
-    obraSocial: "Swiss Medical",
-    diagnostico: "Cervicalgia postural.",
-  },
-  "Juan Pérez": {
-    dni: "30.987.654",
-    edad: "42 años",
-    obraSocial: "Medifé",
-    diagnostico: "Lumbociatalgia izquierda.",
-  },
-  "Sofía Ruiz": {
-    dni: "35.111.222",
-    edad: "29 años",
-    obraSocial: "OSDE 210",
-    diagnostico: "Inestabilidad de tobillo.",
-  },
-  "Pedro Fernández": {
-    dni: "29.333.444",
-    edad: "45 años",
-    obraSocial: "Galeno",
-    diagnostico: "Dolor lumbar inespecífico.",
-  },
-  "Lucas Díaz": {
-    dni: "28.765.432",
-    edad: "50 años",
-    obraSocial: "PAMI",
-    diagnostico: "Reeducación de la marcha.",
-  },
-  "Ana Torres": {
-    dni: "33.222.111",
-    edad: "38 años",
-    obraSocial: "OSDE 210",
-    diagnostico: "Tendinitis de hombro.",
-  },
-};
-
-function buildPatientFromAppt(appt) {
-  if (!appt) return null;
-  const base = MOCK_PATIENT_DETAILS_BY_NAME[appt.patient] || {
-    dni: "—",
-    edad: "—",
-    obraSocial: "—",
-    diagnostico: "—",
-  };
-
+function mapPacienteToPatientInfo(pat) {
+  if (!pat) return null;
   return {
-    nombre: appt.patient,
-    dni: base.dni,
-    edad: base.edad,
-    obraSocial: base.obraSocial,
-    diagnostico: base.diagnostico,
-    tratamiento: appt.treatment,
-    especialidad: appt.specialty,
-    proximoTurno: `${appt.date} · ${String(appt.hour).padStart(2, "0")}:00`,
+    name: pat.nombre || pat.name || "",
+    dni: pat.dni || "",
+    phone: pat.celular || pat.phone || "",
+    mail: pat.mail || pat.email || "",
+    os: pat.obraSocial || pat.os || "",
+    blood: pat.grupoSanguineo || pat.blood || "",
+    allergies: pat.alergias || pat.allergies || "",
+    chronic: pat.enfermedadesCronicas || pat.chronic || "",
+    emergencyName: pat.contactoEmergenciaNombre || pat.emergencyName || "",
+    emergencyPhone: pat.contactoEmergenciaTelefono || pat.emergencyPhone || "",
+    notes: pat.notas || pat.notes || "",
   };
 }
 
 export default function MedicoAgenda() {
+  // ✅ sesión SIEMPRE dentro del componente (no a nivel módulo)
   const session = readSession();
   const payload = session?.payload || {};
 
@@ -173,16 +60,17 @@ export default function MedicoAgenda() {
     payload.profesional_id ||
     payload.profesionalId ||
     payload.user_id ||
+    payload.id ||
+    payload.sub ||
     null;
 
   const doctorDisplayName =
-    payload.name ||
-    payload.nombre ||
-    payload.username ||
-    "Profesional de Neffen Consultorios";
+    payload.name || payload.nombre || payload.username || "Profesional";
 
+  // ✅ Estos estados/derivados van ARRIBA, antes de usarlos en effects
   const [anchorDate, setAnchorDate] = useState(() => startOfWeek(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => new Date());
+
   const weekStart = useMemo(() => startOfWeek(anchorDate), [anchorDate]);
   const weekDays = useMemo(
     () => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)),
@@ -190,59 +78,32 @@ export default function MedicoAgenda() {
   );
 
   const [appointments, setAppointments] = useState([]);
+  const [currentAppt, setCurrentAppt] = useState(null);
+  const [currentPatient, setCurrentPatient] = useState(null);
 
-  // Cargar turnos del profesional (reales + mock)
+  // ✅ UN SOLO effect para cargar turnos
   useEffect(() => {
     let ignore = false;
 
     (async () => {
-      const weekISO = fmt(weekStart);
-      const mock = buildMockAppointments(weekISO);
+      if (!profesionalIdFromToken) {
+        console.warn(
+          "Token sin id de profesional en payload. No se puede cargar agenda."
+        );
+        if (!ignore) setAppointments([]);
+        return;
+      }
 
       try {
-        // Asumo que esto trae algo tipo:
-        // { id, fecha, horaIni, pacienteNombre, tratamiento, especialidad, ... }
+        const weekISO = fmt(weekStart);
         const real = await fetchTurnosProfesionalSemana(
           profesionalIdFromToken,
           weekISO
         );
-
-        const base = parseYMDToLocal(weekISO);
-
-        const realMapped = (real || []).map((a, idx) => {
-          const fecha = a.fecha || a.date;
-          const dLocal = fecha ? parseYMDToLocal(fecha) : base;
-          const diff = Math.round((dLocal - base) / MS_PER_DAY);
-          const dayOffset = Math.max(0, Math.min(4, diff));
-
-          const hourStr = a.horaIni || a.hora || "08:00";
-          const hour = Number(hourStr.split(":")[0]) || 8;
-
-          return {
-            id: `real-${a.id ?? idx}`,
-            dayOffset,
-            hour,
-            duration: a.duration ?? 1,
-            patient: a.pacienteNombre || a.patient || "",
-            treatment: a.tratamiento || a.treatment || "",
-            specialty: a.especialidad || a.specialty || "",
-            date: fmt(dLocal),
-            status: a.estado || a.status || "confirmado",
-            isReal: true,
-          };
-        });
-
-        if (!ignore) {
-          setAppointments([...realMapped, ...mock]);
-        }
+        if (!ignore) setAppointments(Array.isArray(real) ? real : []);
       } catch (err) {
-        console.error(
-          "Error cargando turnos profesional desde backend, usando solo mock:",
-          err
-        );
-        if (!ignore) {
-          setAppointments(mock);
-        }
+        console.error("Error cargando turnos profesional:", err);
+        if (!ignore) setAppointments([]);
       }
     })();
 
@@ -251,27 +112,46 @@ export default function MedicoAgenda() {
     };
   }, [weekStart, profesionalIdFromToken]);
 
-  const [currentAppt, setCurrentAppt] = useState(null);
-  const [currentPatient, setCurrentPatient] = useState(null);
-
+  // Autoselección de turno
   useEffect(() => {
     if (appointments.length > 0 && !currentAppt) {
       const todayISO = fmt(new Date());
       const todays = appointments.filter((a) => a.date === todayISO);
       const first = todays[0] || appointments[0];
       setCurrentAppt(first);
-      setCurrentPatient(buildPatientFromAppt(first));
     }
   }, [appointments, currentAppt]);
 
+  // Cargar paciente actual
+  useEffect(() => {
+    let ignore = false;
+
+    (async () => {
+      if (!currentAppt?.patientId) {
+        if (!ignore) setCurrentPatient(null);
+        return;
+      }
+      try {
+        const pat = await traerPaciente(currentAppt.patientId);
+        if (!ignore) setCurrentPatient(mapPacienteToPatientInfo(pat));
+      } catch (err) {
+        console.error("Error trayendo paciente:", err);
+        if (!ignore) setCurrentPatient(null);
+      }
+    })();
+
+    return () => {
+      ignore = true;
+    };
+  }, [currentAppt?.patientId]);
+
   const logout = () => {
-    sessionStorage.removeItem("gt_session_jwt");
+    sessionStorage.removeItem("gt_backend_token");
     window.location.href = "/login";
   };
 
   function handleSelectAppt(appt) {
     setCurrentAppt(appt);
-    setCurrentPatient(buildPatientFromAppt(appt));
     if (appt?.date) {
       setSelectedDate(parseISODateLocal(appt.date));
       setAnchorDate(startOfWeek(appt.date));
@@ -280,29 +160,15 @@ export default function MedicoAgenda() {
 
   return (
     <div className="page-wrap">
-      <Header doctorName={doctorDisplayName} onLogout={logout} />
+      <Header
+        doctorName={doctorDisplayName}
+        onLogout={logout}
+        enableHistorialButton={true} // ✅ SIEMPRE en médico
+      />
 
-      {/* Layout del profesional: columna principal + calendario a la derecha */}
       <main className="agenda-container agenda-medico">
-        {/* Columna principal: info del paciente + grilla de turnos */}
         <section className="agenda-main">
-          {/* Info del paciente siempre arriba */}
-          <PatientInfo appt={currentAppt} patient={currentPatient} />
-
-          {/* Toolbar de semana */}
-          <div className="toolbar card">
-            <div className="toolbar-main">
-              <div className="toolbar-title">
-                Semana del{" "}
-                {weekStart.toLocaleDateString("es-AR", {
-                  day: "2-digit",
-                  month: "long",
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Grilla de turnos en el centro */}
+          <PatientInfo patient={currentPatient} />
           <ScheduleGrid
             weekDays={weekDays}
             hours={HOURS}
@@ -311,7 +177,6 @@ export default function MedicoAgenda() {
           />
         </section>
 
-        {/* Columna derecha: mini calendario */}
         <aside className="agenda-side">
           <div className="card calendar">
             <WeekCalendar
