@@ -148,10 +148,11 @@ export default function Secretaria() {
   return (
     <div className="page-wrap">
       <Header
-        doctorName="Secretaría"
-        onLogout={logout}
-        enableHistorialButton={false} // ✅ NUNCA en secretaría
-      />
+  doctorName="Secretaría"
+  onLogout={logout}
+  enableHistorialButton={false}
+  showNotifications={true}   // ✅ campanita solo acá
+/>
 
       <main className="agenda-container" style={{ width: "100vw", maxWidth: "none" }}>
         <ResizableLayout
