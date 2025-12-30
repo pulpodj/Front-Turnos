@@ -1,7 +1,5 @@
 // src/pages/Pagos.jsx
 import { useEffect, useMemo, useState } from "react";
-import Header from "../ui/Header.jsx";
-import Footer from "../ui/Footer.jsx";
 import { getBackendToken } from "../api/http.js";
 import { listarPacientes } from "../api/abmBackend.js";
 import {
@@ -374,21 +372,18 @@ export default function Pagos() {
   if (!useBackend) {
     return (
       <div className="page pagos-page">
-        <Header />
         <main className="container pagos-main" style={{ padding: "18px 0" }}>
           <div className="card">
             <h2>ABM Pagos</h2>
             <p className="muted">Iniciá sesión contra el backend para usar el ABM de pagos.</p>
           </div>
         </main>
-        <Footer />
       </div>
     );
   }
 
   return (
     <div className="page pagos-page">
-      <Header />
 
       <main className="container pagos-main" style={{ padding: "18px 0" }}>
         {/* Barra superior de filtros (layout fino) */}
@@ -767,8 +762,6 @@ export default function Pagos() {
     </div>
   </div>
 )}
-
-      <Footer />
     </div>
   );
 }

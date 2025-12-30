@@ -21,11 +21,7 @@ function normalizeMoney(raw) {
   const txt = String(raw || "").trim();
   if (!txt) return NaN;
 
-  const normalized = txt
-    .replace(/\./g, "")
-    .replace(",", ".")
-    .replace(/[^0-9.]/g, "");
-
+  const normalized = txt.replace(/\./g, "").replace(",", ".").replace(/[^0-9.]/g, "");
   const n = Number(normalized);
   return Number.isFinite(n) ? n : NaN;
 }
@@ -33,7 +29,6 @@ function normalizeMoney(raw) {
 export default function PagosPanel() {
   const useBackend = !!getBackendToken();
 
-  // estilos defensivos anti-overflow (por si hay CSS global con min-width raro)
   const fieldStyle = {
     width: "100%",
     minWidth: 0,
@@ -145,157 +140,183 @@ export default function PagosPanel() {
     window.open("/pagos", "_blank", "width=1200,height=750,scrollbars=yes");
   }
 
-  if (!useBackend) {
-    return (
-      <div className="card pagos-card">
-        <h2 style={{ margin: 0 }}>Pagos</h2>
-        <p className="muted" style={{ marginTop: 8 }}>
-          Iniciá sesión contra el backend para gestionar pagos reales.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="card pagos-card">
+    <div className="card pagos-card pagos-panel">
       <h2 style={{ margin: 0 }}>Pagos</h2>
 
-      {err && (
-        <div className="alert error" style={{ marginTop: 10 }}>
-          {err}
-        </div>
-      )}
-      {ok && (
-        <div className="alert success" style={{ marginTop: 10 }}>
-          {ok}
-        </div>
-      )}
+      {/* ✅ Scroll real acá */}
+      <div className="pagos-scroll" style={{ marginTop: 10 }}>
+        {!useBackend && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            Iniciá sesión contra el backend para gestionar pagos reales.
+          </p>
+        )}
 
-      <form onSubmit={guardar} className="form" style={{ marginTop: 10 }}>
-        {/* fila 1 */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.6fr)",
-            gap: 10,
-          }}
-        >
-          <label style={{ margin: 0, minWidth: 0 }}>
-            Paciente
-            <select
-              style={fieldStyle}
-              value={form.pacienteId}
-              onChange={(e) => setForm((s) => ({ ...s, pacienteId: e.target.value }))}
-            >
-              <option value="">-- Seleccionar --</option>
-              {pacientes.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre}
-                </option>
-              ))}
-            </select>
-          </label>
+        {useBackend && (
+          <>
+            {err && (
+              <div className="alert error" style={{ marginTop: 10 }}>
+                {err}
+              </div>
+            )}
+            {ok && (
+              <div className="alert success" style={{ marginTop: 10 }}>
+                {ok}
+              </div>
+            )}
 
-          <label style={{ margin: 0, minWidth: 0 }}>
-            Fecha
-            <input
-              style={fieldStyle}
-              type="date"
-              value={form.fecha}
-              onChange={(e) => setForm((s) => ({ ...s, fecha: e.target.value }))}
-            />
-          </label>
+            <form onSubmit={guardar} className="form" style={{ marginTop: 10 }}>
+              {/* fila 1 */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.6fr)",
+                  gap: 10,
+                }}
+              >
+                <label style={{ margin: 0, minWidth: 0 }}>
+                  Paciente
+                  <select
+                    style={fieldStyle}
+                    value={form.pacienteId}
+                    onChange={(e) => setForm((s) => ({ ...s, pacienteId: e.target.value }))}
+                  >
+                    <option value="">-- Seleccionar --</option>
+                    {pacientes.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-          <label style={{ margin: 0, minWidth: 0 }}>
-            Tratamiento
-            <select
-              style={fieldStyle}
-              value={form.tratamientoId}
-              onChange={(e) => setForm((s) => ({ ...s, tratamientoId: e.target.value }))}
-            >
-              <option value="">-- Seleccionar --</option>
-              {TRATAMIENTOS.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.nombre}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+                <label style={{ margin: 0, minWidth: 0 }}>
+                  Fecha
+                  <input
+                    style={fieldStyle}
+                    type="date"
+                    value={form.fecha}
+                    onChange={(e) => setForm((s) => ({ ...s, fecha: e.target.value }))}
+                  />
+                </label>
 
-        {/* fila 2 */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "110px minmax(0, 1fr) minmax(0, 1fr)",
-            gap: 10,
-            marginTop: 10,
-          }}
-        >
-          <label style={{ margin: 0, minWidth: 0 }}>
-            Sesión #
-            <input
-              style={fieldStyle}
-              type="number"
-              min="1"
-              placeholder="Ej: 4"
-              value={form.sesion}
-              onChange={(e) => setForm((s) => ({ ...s, sesion: e.target.value }))}
-            />
-          </label>
+                <label style={{ margin: 0, minWidth: 0 }}>
+                  Tratamiento
+                  <select
+                    style={fieldStyle}
+                    value={form.tratamientoId}
+                    onChange={(e) =>
+                      setForm((s) => ({ ...s, tratamientoId: e.target.value }))
+                    }
+                  >
+                    <option value="">-- Seleccionar --</option>
+                    {TRATAMIENTOS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
 
-          <label style={{ margin: 0, minWidth: 0 }}>
-            Debe
-            <input
-              style={fieldStyle}
-              type="text"
-              placeholder="Ej: 1500 o 1.500,00"
-              value={form.debe}
-              disabled={haberFilled}
-              onChange={(e) => {
-                const v = e.target.value;
-                setForm((s) => ({ ...s, debe: v, haber: v.trim() ? "" : s.haber }));
-              }}
-            />
-          </label>
+              {/* fila 2 */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "110px minmax(0, 1fr) minmax(0, 1fr)",
+                  gap: 10,
+                  marginTop: 10,
+                }}
+              >
+                <label style={{ margin: 0, minWidth: 0 }}>
+                  Sesión #
+                  <input
+                    style={fieldStyle}
+                    type="number"
+                    min="1"
+                    placeholder="Ej: 4"
+                    value={form.sesion}
+                    onChange={(e) => setForm((s) => ({ ...s, sesion: e.target.value }))}
+                  />
+                </label>
 
-          <label style={{ margin: 0, minWidth: 0 }}>
-            Haber
-            <input
-              style={fieldStyle}
-              type="text"
-              placeholder="Ej: 1500 o 1.500,00"
-              value={form.haber}
-              disabled={debeFilled}
-              onChange={(e) => {
-                const v = e.target.value;
-                setForm((s) => ({ ...s, haber: v, debe: v.trim() ? "" : s.debe }));
-              }}
-            />
-          </label>
-        </div>
+                <label style={{ margin: 0, minWidth: 0 }}>
+                  Debe
+                  <input
+                    style={fieldStyle}
+                    type="text"
+                    placeholder="Ej: 1500 o 1.500,00"
+                    value={form.debe}
+                    disabled={haberFilled}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setForm((s) => ({ ...s, debe: v, haber: v.trim() ? "" : s.haber }));
+                    }}
+                  />
+                </label>
 
-        <label style={{ marginTop: 10 }}>
-          Observación
-          <textarea
-            style={fieldStyle}
-            rows={2}
-            value={form.observacion}
-            onChange={(e) => setForm((s) => ({ ...s, observacion: e.target.value }))}
-          />
-        </label>
+                <label style={{ margin: 0, minWidth: 0 }}>
+                  Haber
+                  <input
+                    style={fieldStyle}
+                    type="text"
+                    placeholder="Ej: 1500 o 1.500,00"
+                    value={form.haber}
+                    disabled={debeFilled}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setForm((s) => ({ ...s, haber: v, debe: v.trim() ? "" : s.debe }));
+                    }}
+                  />
+                </label>
+              </div>
 
-        {/* acciones */}
-        <div className="inline" style={{ justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
-          <button type="button" className="btn-ghost" onClick={abrirABM}>
-            ABM de pagos ↗
-          </button>
+              <label style={{ marginTop: 10 }}>
+                Observación
+                <textarea
+                  style={fieldStyle}
+                  rows={2}
+                  value={form.observacion}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, observacion: e.target.value }))
+                  }
+                />
+              </label>
 
-          <button type="submit" className={`primary ${loading ? "loading" : ""}`} disabled={loading}>
-            {loading ? "Guardando..." : "Guardar"}
-          </button>
-        </div>
-      </form>
+              <div
+                className="inline"
+                style={{
+                  justifyContent: "flex-end",
+                  gap: 10,
+                  marginTop: 10,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button type="button" className="btn-ghost" onClick={abrirABM}>
+                  ABM de pagos ↗
+                </button>
+
+                <button
+                  type="submit"
+                  className={`primary ${loading ? "loading" : ""}`}
+                  disabled={loading}
+                >
+                  {loading ? "Guardando..." : "Guardar"}
+                </button>
+              </div>
+            </form>
+
+            <style>{`
+              @media (max-width: 520px) {
+                .pagos-card form > div[style*="gridTemplateColumns"] {
+                  grid-template-columns: 1fr !important;
+                }
+              }
+            `}</style>
+          </>
+        )}
+      </div>
     </div>
   );
 }

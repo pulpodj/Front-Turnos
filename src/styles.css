@@ -1012,3 +1012,254 @@ body.is-resizing{
   overflow: auto;
   padding-right: 4px;
 }
+
+/* ============================
+   SCROLL GENERAL PARA PANELES
+   ============================ */
+
+/* ABM Panel dentro de secretaria */
+.abm-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* lo que está dentro del ABM necesita ser scrollable */
+.abm-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+/* Pagos panel */
+.pagos-scroll {
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+/* POPUPS como historial clínico */
+.hc-popup {
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+.pagos-scroll{
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 8px;
+}
+/* =========================
+   SCROLL ROBUSTO EN PANELES
+   ========================= */
+
+/* ya tenías min-height:0 en resizable-shell y resizable-pane (bien).
+   Este bloque es CLAVE: pane-scroll debe ser flex y NO scrollear él. */
+.pane-scroll{
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* el scroll vive adentro (ABM / grid / pagos) */
+}
+
+/* Para cards que necesitan “llenar” el pane y permitir scroll adentro */
+.pane-card{
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* La grilla central debe ocupar el resto y scrollear */
+.grid-scroll{
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* =========================
+   ABM PANEL: tabs fijos + body scrolleable
+   ========================= */
+.abm-panel{
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.abm-scroll{
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px; /* que el scrollbar no tape inputs */
+}
+
+/* =========================
+   PAGOS PANEL: header fijo + body scrolleable
+   ========================= */
+.pagos-panel{
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pagos-scroll{
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+}
+
+/* =========================
+   POPUP / HISTORIAL CLÍNICO
+   ========================= */
+.hc-popup{
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  min-height: 0;
+}
+/* ========= SCROLL ROBUSTO EN PANELES (pegar al final) ========= */
+
+/* Pane wrapper: debe ser flex-col y NO scrollear él */
+.pane-scroll{
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;          /* el scroll vive adentro de cada panel */
+}
+
+/* Utilidades para panes */
+.pane-col{
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.pane-fill{
+  flex: 1;
+  min-height: 0;
+}
+
+/* Card que debe ocupar todo el alto del pane */
+.pane-card-fill{
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;          /* el scroll vive adentro del panel */
+}
+
+/* ===== ABM panel ===== */
+.abm-panel{
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ✅ acá va el scroll real */
+.abm-panel__body{
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+}
+
+/* ===== Pagos panel ===== */
+.pagos-panel{
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ✅ acá va el scroll real */
+.pagos-panel__body{
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+}
+
+/* ===== Popups / Historial clínico: scroll si excede ===== */
+.hc-popup, .abm-popup{
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+}
+/* =========================
+   FIX DEFINITIVO DE SCROLL
+   (PEGAR AL FINAL DEL styles.css)
+   ========================= */
+
+/* El pane NO scrollea: scrollea el contenido interno (ABM/Pagos/Grid) */
+.pane-scroll{
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Card que debe ocupar toda la altura del pane (para que el hijo pueda scrollear) */
+.pane-card{
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Center grid ocupa el resto y scrollea */
+.grid-scroll{
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ABM: tabs fijos + body con scroll */
+.abm-panel{
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.abm-scroll{
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+}
+
+/* Pagos: header fijo + body con scroll */
+.pagos-panel{
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.pagos-scroll{
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+}
+
+/* POPUPS (historial clínico) */
+.hc-popup{
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+}

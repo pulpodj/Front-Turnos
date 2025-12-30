@@ -45,7 +45,6 @@ export default function Secretaria() {
 
   const useBackend = !!getBackendToken();
 
-  // ✅ Solo backend: profesionales reales
   useEffect(() => {
     (async () => {
       if (!useBackend) {
@@ -72,13 +71,7 @@ export default function Secretaria() {
 
     try {
       const weekISO = fmt(weekStart);
-
-      // ✅ Ya viene mapeado con color/edge por tratamiento desde turnosBackend.js
-      const realList = await fetchTurnosSecretariaSemana(
-        weekISO,
-        doctorId || undefined
-      );
-
+      const realList = await fetchTurnosSecretariaSemana(weekISO, doctorId || undefined);
       setItems(Array.isArray(realList) ? realList : []);
     } catch (err) {
       console.error("Error cargando turnos:", err);
@@ -98,7 +91,7 @@ export default function Secretaria() {
 
   const leftPane = (
     <div className="pane-scroll">
-      <div className="card" style={{ padding: 12 }}>
+      <div className="card pane-card" style={{ padding: 12 }}>
         <ABMPanel onDataChanged={reload} />
       </div>
     </div>
@@ -114,6 +107,7 @@ export default function Secretaria() {
           display: "flex",
           gap: 8,
           alignItems: "center",
+          flex: "0 0 auto",
         }}
       >
         <span className="muted">Profesional:</span>
@@ -135,7 +129,7 @@ export default function Secretaria() {
 
   const rightPane = (
     <div className="pane-scroll">
-      <div className="card calendar" style={{ marginBottom: 12 }}>
+      <div className="card calendar" style={{ marginBottom: 12, flex: "0 0 auto" }}>
         <WeekCalendar
           anchorDate={weekStart}
           selectedDate={selectedDate}
@@ -145,6 +139,8 @@ export default function Secretaria() {
           }}
         />
       </div>
+
+      {/* PagosPanel ya es flex:1 internamente por la clase pagos-panel */}
       <PagosPanel />
     </div>
   );

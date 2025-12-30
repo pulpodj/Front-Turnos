@@ -150,7 +150,7 @@ export default function AbmPacientes() {
       <main className="agenda-container">
         <div className="card abm-popup abm-panel">
           <div className="abm-popup-topbar">
-            <div style={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0, minHeight: 0 }}>
               <h2 style={{ margin: 0 }}>Pacientes</h2>
               <p className="muted" style={{ margin: "6px 0 0" }}>
                 Ventana rápida: buscar, editar y crear.

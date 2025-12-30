@@ -1,5 +1,5 @@
 // src/ui/ABMPanel.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   crearPaciente,
   modificarPaciente,
@@ -21,6 +21,13 @@ const OBRAS_SOCIALES_FALLBACK = [
   { id: 4, nombre: "Galeno" },
 ];
 
+// ===== Tratamientos (Turnos) =====
+const TURNOS_TRATAMIENTOS = [
+  "Terapia Manual",
+  "Kinesiología Convencional",
+  "Ejercicios Adaptados",
+];
+
 // ===== Utilidades mínimas =====
 const startOfWeek = (d) => {
   const x = new Date(d);
@@ -31,13 +38,24 @@ const startOfWeek = (d) => {
 };
 const fmt = (d) => d.toISOString().slice(0, 10);
 
+const emptyTurnoForm = () => ({
+  id: null,
+  idPaciente: "",
+  idProfecional: "",
+  fecha: fmt(new Date()),
+  horaIni: "08:00",
+  horaFin: "09:00",
+  tratamiento: TURNOS_TRATAMIENTOS[0],
+  obs: "",
+  estado: "pendiente",
+});
+
 export default function ABMPanel({ onDataChanged }) {
   const [tab, setTab] = useState("pacientes");
   const useBackend = !!getBackendToken();
 
   // ===== Pacientes =====
   const [pacList, setPacList] = useState([]);
-  const [pacNombreSearch, setPacNombreSearch] = useState(""); // (queda, por si más adelante lo querés usar)
   const [formPac, setFormPac] = useState(mapPacienteABMForm({}));
   const [loadingPac, setLoadingPac] = useState(false);
   const [errorPac, setErrorPac] = useState("");
@@ -50,16 +68,7 @@ export default function ABMPanel({ onDataChanged }) {
 
   // ===== Turnos =====
   const [anchor, setAnchor] = useState(() => startOfWeek(new Date()));
-  const [formTur, setFormTur] = useState({
-    id: null,
-    idPaciente: "",
-    idProfecional: "",
-    fecha: fmt(new Date()),
-    horaIni: "08:00",
-    horaFin: "09:00",
-    obs: "",
-    estado: "pendiente",
-  });
+  const [formTur, setFormTur] = useState(emptyTurnoForm());
   const [loadingTur, setLoadingTur] = useState(false);
   const [errorTur, setErrorTur] = useState("");
 
@@ -75,7 +84,6 @@ export default function ABMPanel({ onDataChanged }) {
         console.error("Error listando pacientes", e);
       }
 
-      // ✅ Se mantiene aunque no haya pestaña "Profesionales", porque Turnos lo necesita
       try {
         const r = await listarProfesionales();
         if (Array.isArray(r)) setProList(r);
@@ -94,15 +102,6 @@ export default function ABMPanel({ onDataChanged }) {
       }
     })();
   }, [useBackend]);
-
-  // ===== Memo filtros (queda por si lo querés después; NO se renderiza lista) =====
-  useMemo(() => {
-    return pacList.filter((p) =>
-      pacNombreSearch
-        ? (p.nombre || "").toLowerCase().includes(pacNombreSearch.toLowerCase())
-        : true
-    );
-  }, [pacList, pacNombreSearch]);
 
   // ===== CRUD Pacientes =====
   async function submitPaciente(e) {
@@ -145,17 +144,7 @@ export default function ABMPanel({ onDataChanged }) {
       if (formTur.id) await modificarTurno(payload);
       else await crearTurno(payload);
 
-      setFormTur({
-        id: null,
-        idPaciente: "",
-        idProfecional: "",
-        fecha: fmt(new Date()),
-        horaIni: "08:00",
-        horaFin: "09:00",
-        obs: "",
-        estado: "pendiente",
-      });
-
+      setFormTur(emptyTurnoForm());
       onDataChanged && onDataChanged();
     } catch (err) {
       setErrorTur(err.message || "Error al guardar turno");
@@ -170,18 +159,7 @@ export default function ABMPanel({ onDataChanged }) {
     setLoadingTur(true);
     try {
       await cancelarTurno(formTur.id);
-
-      setFormTur({
-        id: null,
-        idPaciente: "",
-        idProfecional: "",
-        fecha: fmt(new Date()),
-        horaIni: "08:00",
-        horaFin: "09:00",
-        obs: "",
-        estado: "pendiente",
-      });
-
+      setFormTur(emptyTurnoForm());
       onDataChanged && onDataChanged();
     } catch (err) {
       setErrorTur(err.message || "No se pudo cancelar el turno");
@@ -191,9 +169,9 @@ export default function ABMPanel({ onDataChanged }) {
   }
 
   return (
-    <div className="abm-panel abm-scroll">
-      {/* ✅ Tabs: solo Pacientes + Turnos */}
-      <div className="segmented" style={{ marginBottom: 12 }}>
+    <div className="abm-panel">
+      {/* Tabs fijos (NO scrollean) */}
+      <div className="segmented">
         <button
           type="button"
           className={tab === "pacientes" ? "active" : ""}
@@ -211,18 +189,16 @@ export default function ABMPanel({ onDataChanged }) {
         </button>
       </div>
 
-      {/* ===================== PACIENTES ===================== */}
-      {tab === "pacientes" && (
-        <>
-          {/* ❌ SIN LISTA DE PACIENTES (solo formulario) */}
-          <form className="form" onSubmit={submitPaciente}>
+      {/* ✅ Scroll real acá */}
+      <div className="abm-scroll">
+        {/* ===================== PACIENTES ===================== */}
+        {tab === "pacientes" && (
+          <form className="form" onSubmit={submitPaciente} style={{ marginTop: 10 }}>
             <label>
               Nombre
               <input
                 value={formPac.nombre}
-                onChange={(e) =>
-                  setFormPac((s) => ({ ...s, nombre: e.target.value }))
-                }
+                onChange={(e) => setFormPac((s) => ({ ...s, nombre: e.target.value }))}
                 required
               />
             </label>
@@ -233,9 +209,7 @@ export default function ABMPanel({ onDataChanged }) {
                 <input
                   inputMode="numeric"
                   value={formPac.dni}
-                  onChange={(e) =>
-                    setFormPac((s) => ({ ...s, dni: e.target.value }))
-                  }
+                  onChange={(e) => setFormPac((s) => ({ ...s, dni: e.target.value }))}
                 />
               </label>
               <label>
@@ -243,9 +217,7 @@ export default function ABMPanel({ onDataChanged }) {
                 <input
                   inputMode="tel"
                   value={formPac.celular}
-                  onChange={(e) =>
-                    setFormPac((s) => ({ ...s, celular: e.target.value }))
-                  }
+                  onChange={(e) => setFormPac((s) => ({ ...s, celular: e.target.value }))}
                 />
               </label>
             </div>
@@ -255,9 +227,7 @@ export default function ABMPanel({ onDataChanged }) {
               <input
                 type="email"
                 value={formPac.mail}
-                onChange={(e) =>
-                  setFormPac((s) => ({ ...s, mail: e.target.value }))
-                }
+                onChange={(e) => setFormPac((s) => ({ ...s, mail: e.target.value }))}
               />
             </label>
 
@@ -268,13 +238,11 @@ export default function ABMPanel({ onDataChanged }) {
                   type="date"
                   value={formPac.fechaNacimiento}
                   onChange={(e) =>
-                    setFormPac((s) => ({
-                      ...s,
-                      fechaNacimiento: e.target.value,
-                    }))
+                    setFormPac((s) => ({ ...s, fechaNacimiento: e.target.value }))
                   }
                 />
               </label>
+
               <label>
                 Obra Social
                 <select
@@ -282,9 +250,7 @@ export default function ABMPanel({ onDataChanged }) {
                   onChange={(e) =>
                     setFormPac((s) => ({
                       ...s,
-                      idObraSocial: e.target.value
-                        ? Number(e.target.value)
-                        : "",
+                      idObraSocial: e.target.value ? Number(e.target.value) : "",
                     }))
                   }
                 >
@@ -302,9 +268,7 @@ export default function ABMPanel({ onDataChanged }) {
               Dirección
               <input
                 value={formPac.direccion}
-                onChange={(e) =>
-                  setFormPac((s) => ({ ...s, direccion: e.target.value }))
-                }
+                onChange={(e) => setFormPac((s) => ({ ...s, direccion: e.target.value }))}
               />
             </label>
 
@@ -313,9 +277,7 @@ export default function ABMPanel({ onDataChanged }) {
                 Usuario
                 <input
                   value={formPac.usuario}
-                  onChange={(e) =>
-                    setFormPac((s) => ({ ...s, usuario: e.target.value }))
-                  }
+                  onChange={(e) => setFormPac((s) => ({ ...s, usuario: e.target.value }))}
                 />
               </label>
               <label>
@@ -323,9 +285,7 @@ export default function ABMPanel({ onDataChanged }) {
                 <input
                   type="password"
                   value={formPac.clave}
-                  onChange={(e) =>
-                    setFormPac((s) => ({ ...s, clave: e.target.value }))
-                  }
+                  onChange={(e) => setFormPac((s) => ({ ...s, clave: e.target.value }))}
                 />
               </label>
             </div>
@@ -354,13 +314,11 @@ export default function ABMPanel({ onDataChanged }) {
               )}
             </div>
           </form>
-        </>
-      )}
+        )}
 
-      {/* ===================== TURNOS ===================== */}
-      {tab === "turnos" && (
-        <>
-          <form className="form" onSubmit={submitTurno}>
+        {/* ===================== TURNOS ===================== */}
+        {tab === "turnos" && (
+          <form className="form" onSubmit={submitTurno} style={{ marginTop: 10 }}>
             <div className="inline" style={{ gap: 10 }}>
               <span className="muted">Semana de {fmt(anchor)}</span>
               <div className="row-actions">
@@ -368,10 +326,7 @@ export default function ABMPanel({ onDataChanged }) {
                   type="button"
                   className="btn-mini"
                   onClick={() =>
-                    setAnchor(
-                      (d) =>
-                        new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7)
-                    )
+                    setAnchor((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7))
                   }
                 >
                   <span className="material-symbols-rounded">chevron_left</span>
@@ -380,10 +335,7 @@ export default function ABMPanel({ onDataChanged }) {
                   type="button"
                   className="btn-mini"
                   onClick={() =>
-                    setAnchor(
-                      (d) =>
-                        new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7)
-                    )
+                    setAnchor((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7))
                   }
                 >
                   <span className="material-symbols-rounded">chevron_right</span>
@@ -391,7 +343,6 @@ export default function ABMPanel({ onDataChanged }) {
               </div>
             </div>
 
-            {/* Paciente + Profesional */}
             <div className="abm-row-2">
               <label>
                 Paciente
@@ -421,9 +372,7 @@ export default function ABMPanel({ onDataChanged }) {
                   onChange={(e) =>
                     setFormTur((s) => ({
                       ...s,
-                      idProfecional: e.target.value
-                        ? Number(e.target.value)
-                        : "",
+                      idProfecional: e.target.value ? Number(e.target.value) : "",
                     }))
                   }
                   required
@@ -439,16 +388,13 @@ export default function ABMPanel({ onDataChanged }) {
               </label>
             </div>
 
-            {/* Fecha + horas */}
             <div className="abm-turnos-fecha-horas">
               <label>
                 Fecha
                 <input
                   type="date"
                   value={formTur.fecha}
-                  onChange={(e) =>
-                    setFormTur((s) => ({ ...s, fecha: e.target.value }))
-                  }
+                  onChange={(e) => setFormTur((s) => ({ ...s, fecha: e.target.value }))}
                   required
                 />
               </label>
@@ -458,9 +404,7 @@ export default function ABMPanel({ onDataChanged }) {
                 <input
                   type="time"
                   value={formTur.horaIni}
-                  onChange={(e) =>
-                    setFormTur((s) => ({ ...s, horaIni: e.target.value }))
-                  }
+                  onChange={(e) => setFormTur((s) => ({ ...s, horaIni: e.target.value }))}
                   required
                 />
               </label>
@@ -470,21 +414,31 @@ export default function ABMPanel({ onDataChanged }) {
                 <input
                   type="time"
                   value={formTur.horaFin}
-                  onChange={(e) =>
-                    setFormTur((s) => ({ ...s, horaFin: e.target.value }))
-                  }
+                  onChange={(e) => setFormTur((s) => ({ ...s, horaFin: e.target.value }))}
                   required
                 />
               </label>
             </div>
 
             <label>
+              Tratamiento
+              <select
+                value={formTur.tratamiento}
+                onChange={(e) => setFormTur((s) => ({ ...s, tratamiento: e.target.value }))}
+              >
+                {TURNOS_TRATAMIENTOS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
               Observaciones
               <input
                 value={formTur.obs}
-                onChange={(e) =>
-                  setFormTur((s) => ({ ...s, obs: e.target.value }))
-                }
+                onChange={(e) => setFormTur((s) => ({ ...s, obs: e.target.value }))}
               />
             </label>
 
@@ -492,9 +446,7 @@ export default function ABMPanel({ onDataChanged }) {
               Estado
               <select
                 value={formTur.estado}
-                onChange={(e) =>
-                  setFormTur((s) => ({ ...s, estado: e.target.value }))
-                }
+                onChange={(e) => setFormTur((s) => ({ ...s, estado: e.target.value }))}
               >
                 <option value="pendiente">pendiente</option>
                 <option value="confirmado">confirmado</option>
@@ -520,18 +472,7 @@ export default function ABMPanel({ onDataChanged }) {
                   <button
                     type="button"
                     className="btn-ghost"
-                    onClick={() =>
-                      setFormTur({
-                        id: null,
-                        idPaciente: "",
-                        idProfecional: "",
-                        fecha: fmt(new Date()),
-                        horaIni: "08:00",
-                        horaFin: "09:00",
-                        obs: "",
-                        estado: "pendiente",
-                      })
-                    }
+                    onClick={() => setFormTur(emptyTurnoForm())}
                   >
                     Cancelar
                   </button>
@@ -542,15 +483,14 @@ export default function ABMPanel({ onDataChanged }) {
                     onClick={eliminarTurnoActual}
                     disabled={loadingTur}
                   >
-                    <span className="material-symbols-rounded">delete</span>{" "}
-                    Cancelar turno
+                    <span className="material-symbols-rounded">delete</span> Cancelar turno
                   </button>
                 </>
               )}
             </div>
           </form>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }
