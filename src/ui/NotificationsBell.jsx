@@ -1,164 +1,82 @@
 // src/ui/NotificationsBell.jsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-const STORAGE_KEY = "gt_landing_notifications_v1";
+const STORAGE_KEY = "gt_landing_leads"; // [{nombre,apellido,email,telefono,createdAt}]
 
-function safeJsonParse(s, fallback) {
+function readLeads() {
   try {
-    const v = JSON.parse(s);
-    return v ?? fallback;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const arr = JSON.parse(raw || "[]");
+    return Array.isArray(arr) ? arr : [];
   } catch {
-    return fallback;
+    return [];
   }
-}
-
-function readNotifications() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  const arr = safeJsonParse(raw, []);
-  return Array.isArray(arr) ? arr : [];
-}
-
-function writeNotifications(list) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-}
-
-export function pushLandingNotification(data) {
-  // data: {nombre, apellido, email, telefono}
-  const now = Date.now();
-  const item = {
-    id: crypto?.randomUUID?.() ?? String(now),
-    createdAt: now,
-    read: false,
-    ...data,
-  };
-
-  const list = readNotifications();
-  list.unshift(item);
-  writeNotifications(list);
-  return item;
 }
 
 export default function NotificationsBell() {
   const [open, setOpen] = useState(false);
-  const [list, setList] = useState(() => readNotifications());
-  const ref = useRef(null);
-
-  const unreadCount = useMemo(
-    () => list.reduce((acc, n) => acc + (n.read ? 0 : 1), 0),
-    [list]
-  );
-
-  function refresh() {
-    setList(readNotifications());
-  }
-
-  function markAllRead() {
-    const next = list.map((n) => ({ ...n, read: true }));
-    setList(next);
-    writeNotifications(next);
-  }
-
-  function clearAll() {
-    setList([]);
-    writeNotifications([]);
-  }
-
-  function markOneRead(id) {
-    const next = list.map((n) => (n.id === id ? { ...n, read: true } : n));
-    setList(next);
-    writeNotifications(next);
-  }
+  const [leads, setLeads] = useState(() => readLeads());
+  const rootRef = useRef(null);
 
   useEffect(() => {
-    // refresca si otra pestaña o la landing escribe en localStorage
-    const onStorage = (e) => {
-      if (e.key === STORAGE_KEY) refresh();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    const t = setInterval(() => setLeads(readLeads()), 2000);
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    const onDoc = (e) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
 
-    const onKey = (e) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    const onClickOutside = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("mousedown", onClickOutside);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("mousedown", onClickOutside);
-    };
-  }, [open]);
+  const unreadCount = leads.length;
 
   return (
-    <div className="notif-wrap" ref={ref}>
+    <div className="notif" ref={rootRef}>
       <button
-  type="button"
-  className="btn-ghost notif-btn"
-  aria-label="Notificaciones"
-  title="Notificaciones"
-  onClick={() => setOpen((s) => !s)}
->
-  <span className="material-symbols-rounded" aria-hidden>
-    notifications
-  </span>
-  {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
-</button>
+        type="button"
+        className="btn-ghost notif-btn"
+        onClick={() => setOpen((s) => !s)}
+        title="Notificaciones"
+      >
+        <span className="material-symbols-rounded" aria-hidden>
+          notifications
+        </span>
+        {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
+      </button>
 
       {open && (
         <div className="notif-pop">
-          <div className="notif-head">
-            <div className="notif-title">Notificaciones</div>
-            <div className="notif-actions">
-              <button type="button" className="btn-mini" onClick={markAllRead}>
-                Marcar leídas
-              </button>
-              <button type="button" className="btn-mini" onClick={clearAll}>
-                Limpiar
-              </button>
+          <div className="notif-pop__head">
+            <strong>Notificaciones</strong>
+            <span className="muted" style={{ marginLeft: "auto" }}>
+              Landing
+            </span>
+          </div>
+
+          {leads.length === 0 ? (
+            <div className="notif-empty">No hay mensajes todavía.</div>
+          ) : (
+            <div className="notif-list">
+              {leads
+                .slice()
+                .reverse()
+                .slice(0, 20)
+                .map((n, idx) => (
+                  <div key={idx} className="notif-item">
+                    <div className="notif-item__title">
+                      {n.nombre || ""} {n.apellido || ""}
+                    </div>
+                    <div className="notif-item__meta">
+                      {n.email || "—"} • {n.telefono || "—"}
+                    </div>
+                  </div>
+                ))}
             </div>
-          </div>
-
-          <div className="notif-body">
-            {list.length === 0 ? (
-              <div className="notif-empty muted">No hay notificaciones.</div>
-            ) : (
-              list.map((n) => (
-                <button
-                  key={n.id}
-                  type="button"
-                  className={`notif-item ${n.read ? "is-read" : "is-unread"}`}
-                  onClick={() => markOneRead(n.id)}
-                  title="Click para marcar como leída"
-                >
-                  <div className="notif-top">
-                    <div className="notif-name">
-                      {n.nombre || "-"} {n.apellido || ""}
-                    </div>
-                    <div className="notif-date">
-                      {new Date(n.createdAt).toLocaleString()}
-                    </div>
-                  </div>
-
-                  <div className="notif-line">
-                    <span className="material-symbols-rounded">mail</span>
-                    <span>{n.email || "-"}</span>
-                  </div>
-
-                  <div className="notif-line">
-                    <span className="material-symbols-rounded">call</span>
-                    <span>{n.telefono || "-"}</span>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
+          )}
         </div>
       )}
     </div>

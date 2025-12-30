@@ -1,11 +1,15 @@
 // src/ui/ScheduleGrid.jsx
 import React, { useMemo } from "react";
 
+const MAX_PER_CELL = 12; // ✅ requisito: máximo 12 turnos por hora (6 por profesional)
+
 export default function ScheduleGrid(props) {
   const weekDays = Array.isArray(props.weekDays) ? props.weekDays : [];
   const hours = Array.isArray(props.hours) ? props.hours : [];
   const items = Array.isArray(props.items) ? props.items : [];
   const onSelectAppt = typeof props.onSelectAppt === "function" ? props.onSelectAppt : null;
+  const compact = Boolean(props.compact);
+  const selectedId = props.selectedId != null ? String(props.selectedId) : null;
 
   const buckets = useMemo(() => {
     const out = Array.from({ length: 5 }, () => ({}));
@@ -32,7 +36,7 @@ export default function ScheduleGrid(props) {
   }
 
   return (
-    <div className="card sched">
+    <div className={`card sched${compact ? " compact" : ""}`}>
       <div className="sched-head">
         <div className="sched-corner" />
         {weekDays.map((d, idx) => (
@@ -63,11 +67,11 @@ export default function ScheduleGrid(props) {
                 const cellItems = buckets?.[day]?.[h] || [];
                 return (
                   <div key={day} className="cell">
-                    {cellItems.map((it) => (
+                    {cellItems.slice(0, MAX_PER_CELL).map((it) => (
                       <button
                         key={it.id}
                         type="button"
-                        className="appt"
+                        className={`appt${selectedId && String(it.id) === selectedId ? " is-selected" : ""}`}
                         onClick={() => onSelectAppt?.(it)}
                         style={{
                           background: it.color,
@@ -83,6 +87,12 @@ export default function ScheduleGrid(props) {
                         <div className="appt-sub">{it.treatment || ""}</div>
                       </button>
                     ))}
+
+                    {cellItems.length > MAX_PER_CELL && (
+                      <div className="appt-more">
+                        +{cellItems.length - MAX_PER_CELL} más
+                      </div>
+                    )}
                   </div>
                 );
               })}

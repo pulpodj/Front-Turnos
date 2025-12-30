@@ -20,7 +20,7 @@ export default function Header({
   doctorName,
   onLogout,
   enableHistorialButton,
-  showNotifications = false, // ✅ NUEVO: campanita solo cuando lo habilites
+  showNotifications = false,
 }) {
   const sess = readSession();
   const payload = sess?.payload || null;
@@ -31,7 +31,6 @@ export default function Header({
     window.open(
       "/pacientes/historial",
       "_blank",
-      // ✅ IMPORTANTE: sin noopener/noreferrer para poder copiar token desde window.opener
       "width=1200,height=780,scrollbars=yes"
     );
   };
@@ -49,15 +48,14 @@ export default function Header({
       </div>
 
       <div className="header-actions">
-        {/* ✅ Campanita (solo si showNotifications) */}
-        {showNotifications && <NotificationsBell />}
-
         <div className="doctor">
           <span className="material-symbols-rounded" aria-hidden>
             stethoscope
           </span>
           <span>{display}</span>
         </div>
+
+        {showNotifications && <NotificationsBell />}
 
         {showHistorialInHeader && (
           <button

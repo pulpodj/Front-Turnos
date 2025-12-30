@@ -1,12 +1,34 @@
 // src/api/turnosBackend.js
 import { httpJSON } from "./http.js";
+import { MS_PER_DAY, parseYMDToLocal } from "../utils/date.js";
 
-// Helper para formatear fechas a YYYY-MM-DD
-const fmt = (d) => {
-  if (!d) return "";
-  const x = typeof d === "string" ? new Date(d) : d;
-  return x.toISOString().slice(0, 10);
-};
+// ===== Fechas LOCAL (evita bug UTC que te corre 1 día) =====
+function toLocalDateOnly(input) {
+  if (!input) return null;
+
+  if (input instanceof Date) {
+    return new Date(input.getFullYear(), input.getMonth(), input.getDate());
+  }
+
+  const s = String(input);
+
+  // YYYY-MM-DD (local)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return parseYMDToLocal(s);
+
+  // ISO con hora u otro formato parseable
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function fmt(d) {
+  const x = toLocalDateOnly(d);
+  if (!x) return "";
+  const y = x.getFullYear();
+  const m = String(x.getMonth() + 1).padStart(2, "0");
+  const day = String(x.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 // Normaliza distintas formas posibles de respuesta del backend
 function normalizeTurnosResponse(data) {
@@ -30,12 +52,10 @@ function parseTimeToMinutes(timeStr) {
 function normalizeTratamiento(t) {
   const s = String(t || "").trim().toLowerCase();
   if (!s) return "";
-  // tolera variantes comunes
   if (s.includes("terapia") && s.includes("manual")) return "Terapia Manual";
   if (s.includes("kinesi") && (s.includes("conv") || s.includes("convencional")))
     return "Kinesiología Convencional";
   if (s.includes("ejercicio") && s.includes("adapt")) return "Ejercicios Adaptados";
-  // si viene exacto:
   if (s === "terapia manual") return "Terapia Manual";
   if (s === "kinesiología convencional" || s === "kinesiologia convencional")
     return "Kinesiología Convencional";
@@ -46,21 +66,13 @@ function normalizeTratamiento(t) {
 function themeByTratamiento(tratamiento) {
   const t = normalizeTratamiento(tratamiento);
 
-  // Rosado, Verde, Amarillo (glass-friendly)
-  if (t === "Terapia Manual") {
-    return { color: "#ffe3f1", edge: "#ff4fa3" }; // rosado
-  }
-  if (t === "Kinesiología Convencional") {
-    return { color: "#e6ffef", edge: "#2fbf71" }; // verde
-  }
-  if (t === "Ejercicios Adaptados") {
-    return { color: "#fff5d6", edge: "#f2b705" }; // amarillo
-  }
-  // fallback neutro
+  if (t === "Terapia Manual") return { color: "#ffe3f1", edge: "#ff4fa3" };
+  if (t === "Kinesiología Convencional") return { color: "#e6ffef", edge: "#2fbf71" };
+  if (t === "Ejercicios Adaptados") return { color: "#fff5d6", edge: "#f2b705" };
+
   return { color: "#edf6ff", edge: "#2684fe" };
 }
 
-// Convierte un "turno" del backend a la estructura usada por la agenda
 export function mapTurnoToAppointment(t, baseDateForOffset) {
   if (!t) return null;
 
@@ -76,12 +88,9 @@ export function mapTurnoToAppointment(t, baseDateForOffset) {
 
   let dayOffset = 0;
   if (baseDateForOffset && fecha) {
-    const base =
-      typeof baseDateForOffset === "string"
-        ? new Date(baseDateForOffset)
-        : baseDateForOffset;
-    const d = new Date(fecha);
-    dayOffset = Math.round((d - base) / 86400000);
+    const base = toLocalDateOnly(baseDateForOffset);
+    const d = toLocalDateOnly(fecha);
+    if (base && d) dayOffset = Math.round((d - base) / MS_PER_DAY);
   }
 
   const estado = (t.estado || "").toLowerCase();
@@ -98,16 +107,13 @@ export function mapTurnoToAppointment(t, baseDateForOffset) {
     patientId: t.paciente_id ?? t.patient_id ?? t.patientId ?? null,
     doctorId: t.profesional_id ?? t.doctor_id ?? t.doctorId ?? null,
 
-    patient:
-      t.paciente_nombre ?? t.paciente ?? t.patient_name ?? t.patientName ?? "",
-    doctorName:
-      t.profesional_nombre ?? t.doctor ?? t.doctor_name ?? t.doctorName ?? "",
+    patient: t.paciente_nombre ?? t.paciente ?? t.patient_name ?? t.patientName ?? "",
+    doctorName: t.profesional_nombre ?? t.doctor ?? t.doctor_name ?? t.doctorName ?? "",
 
     treatment,
     status: estado || t.estado || "pendiente",
     active: estado !== "cancelado",
 
-    // ✅ colores por tratamiento
     color: theme.color,
     edge: theme.edge,
 
@@ -125,7 +131,7 @@ export async function fetchTurnosSecretariaPorFecha(fecha) {
 }
 
 export async function fetchTurnosSecretariaSemana(anchorISO, doctorId) {
-  const base = new Date(anchorISO);
+  const base = toLocalDateOnly(anchorISO) || new Date();
   const days = Array.from({ length: 5 }, (_, i) =>
     fmt(new Date(base.getFullYear(), base.getMonth(), base.getDate() + i))
   );
@@ -158,9 +164,7 @@ export async function fetchTurnosSecretariaSemana(anchorISO, doctorId) {
 
 export async function fetchTurnosClientePorFecha(clienteId, fecha) {
   const f = fmt(fecha);
-  const path = `/API/turnosCliente?id=${encodeURIComponent(
-    clienteId
-  )}&fecha=${encodeURIComponent(f)}`;
+  const path = `/API/turnosCliente?id=${encodeURIComponent(clienteId)}&fecha=${encodeURIComponent(f)}`;
   const data = await httpJSON(path);
   const turnos = normalizeTurnosResponse(data);
   return turnos.map((t) => mapTurnoToAppointment(t));
@@ -170,16 +174,14 @@ export async function fetchTurnosClientePorFecha(clienteId, fecha) {
 
 export async function fetchTurnosProfesionalPorFecha(profesionalId, fecha) {
   const f = fmt(fecha);
-  const path = `/API/turnosProfesional?id=${encodeURIComponent(
-    profesionalId
-  )}&fecha=${encodeURIComponent(f)}`;
+  const path = `/API/turnosProfesional?id=${encodeURIComponent(profesionalId)}&fecha=${encodeURIComponent(f)}`;
   const data = await httpJSON(path);
   const turnos = normalizeTurnosResponse(data);
   return turnos.map((t) => mapTurnoToAppointment(t));
 }
 
 export async function fetchTurnosProfesionalSemana(profesionalId, anchorISO) {
-  const base = new Date(anchorISO);
+  const base = toLocalDateOnly(anchorISO) || new Date();
   const days = Array.from({ length: 5 }, (_, i) =>
     fmt(new Date(base.getFullYear(), base.getMonth(), base.getDate() + i))
   );
@@ -187,9 +189,7 @@ export async function fetchTurnosProfesionalSemana(profesionalId, anchorISO) {
   const results = await Promise.all(
     days.map(async (f) => {
       try {
-        const path = `/API/turnosProfesional?id=${encodeURIComponent(
-          profesionalId
-        )}&fecha=${encodeURIComponent(f)}`;
+        const path = `/API/turnosProfesional?id=${encodeURIComponent(profesionalId)}&fecha=${encodeURIComponent(f)}`;
         const data = await httpJSON(path);
         const turnos = normalizeTurnosResponse(data);
         return turnos.map((t) => mapTurnoToAppointment(t, days[0]));

@@ -1,5 +1,5 @@
 // src/ui/ABMPanel.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   crearPaciente,
   modificarPaciente,
@@ -12,6 +12,7 @@ import {
   listarObrasSociales,
 } from "../api/abmBackend.js";
 import { getBackendToken } from "../api/http.js";
+import { parseYMDToLocal } from "../utils/date.js";
 
 // ===== Obras sociales (fallback local) =====
 const OBRAS_SOCIALES_FALLBACK = [
@@ -28,29 +29,115 @@ const TURNOS_TRATAMIENTOS = [
   "Ejercicios Adaptados",
 ];
 
-// ===== Utilidades mínimas =====
-const startOfWeek = (d) => {
-  const x = new Date(d);
+// ===== Fechas (LOCAL) =====
+const fmtLocal = (d) => {
+  if (!d) return "";
+  const x = d instanceof Date ? d : new Date(d);
+  const y = x.getFullYear();
+  const m = String(x.getMonth() + 1).padStart(2, "0");
+  const day = String(x.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const startOfWeekLocal = (d) => {
+  const x = d instanceof Date ? new Date(d) : new Date(d);
   const day = x.getDay();
   x.setDate(x.getDate() + (day === 0 ? -6 : 1 - day));
   x.setHours(0, 0, 0, 0);
   return x;
 };
-const fmt = (d) => d.toISOString().slice(0, 10);
 
 const emptyTurnoForm = () => ({
   id: null,
   idPaciente: "",
   idProfecional: "",
-  fecha: fmt(new Date()),
-  horaIni: "08:00",
-  horaFin: "09:00",
+  fecha: fmtLocal(new Date()),
+  horaIni: "07:00",
+  horaFin: "08:00",
   tratamiento: TURNOS_TRATAMIENTOS[0],
   obs: "",
-  estado: "pendiente",
+  estado: "pendiente", // ✅ se mantiene internamente pero NO se muestra
 });
 
-export default function ABMPanel({ onDataChanged }) {
+function isValidYMD(s) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+}
+
+function mapAppointmentToTurnoForm(appt) {
+  if (!appt) return null;
+  const raw = appt.raw || {};
+
+  const fecha = raw.fecha || raw.date || appt.date || fmtLocal(new Date());
+
+  let horaIni =
+    raw.hora_inicio ||
+    raw.horaIni ||
+    raw.horaInicio ||
+    appt.raw?.hora_inicio ||
+    appt.raw?.horaIni ||
+    appt.raw?.horaInicio ||
+    "";
+
+  if (!horaIni) {
+    if (appt.hour != null) horaIni = `${String(appt.hour).padStart(2, "0")}:00`;
+    else horaIni = "07:00";
+  }
+
+  const horaFin = raw.hora_fin || raw.horaFin || appt.raw?.horaFin || "";
+  const tratamiento =
+    raw.tratamiento || raw.treatment || appt.treatment || TURNOS_TRATAMIENTOS[0];
+
+  const obs = raw.obs || raw.observaciones || raw.notas || appt.obs || "";
+  const estado = (raw.estado || appt.status || "pendiente").toString();
+
+  const idPaciente =
+    raw.paciente_id ??
+    raw.patient_id ??
+    raw.idPaciente ??
+    raw.patientId ??
+    appt.patientId ??
+    "";
+
+  const idProfecional =
+    raw.profesional_id ??
+    raw.doctor_id ??
+    raw.idProfecional ??
+    raw.idProfesional ??
+    raw.doctorId ??
+    appt.doctorId ??
+    "";
+
+  // normalizar fecha a YYYY-MM-DD por si viene con timestamp
+  let fechaYMD = String(fecha || "");
+  if (!isValidYMD(fechaYMD)) {
+    const dd = new Date(fechaYMD);
+    if (!Number.isNaN(dd.getTime())) fechaYMD = fmtLocal(dd);
+  }
+
+  // Si no hay horaFin, estimamos con duración
+  let horaFinFinal = String(horaFin || "").trim();
+  if (!horaFinFinal) {
+    const dur = Number(appt.duration || 1);
+    const baseH = Number(appt.hour || 7);
+    const endH = baseH + (Number.isFinite(dur) ? dur : 1);
+    const hh = String(Math.min(23, Math.max(0, Math.floor(endH)))).padStart(2, "0");
+    horaFinFinal = `${hh}:00`;
+  }
+
+  return {
+    id: appt.id ?? raw.id ?? null,
+    idPaciente: idPaciente ? Number(idPaciente) : "",
+    idProfecional: idProfecional ? Number(idProfecional) : "",
+    fecha: fechaYMD,
+    horaIni: String(horaIni),
+    horaFin: String(horaFinFinal),
+    tratamiento: String(tratamiento),
+    obs: String(obs),
+    estado: String(estado || "pendiente"),
+  };
+}
+
+export default function ABMPanel({ onDataChanged, selectedTurno }) {
   const [tab, setTab] = useState("pacientes");
   const useBackend = !!getBackendToken();
 
@@ -67,7 +154,7 @@ export default function ABMPanel({ onDataChanged }) {
   const [obrasSociales, setObrasSociales] = useState(OBRAS_SOCIALES_FALLBACK);
 
   // ===== Turnos =====
-  const [anchor, setAnchor] = useState(() => startOfWeek(new Date()));
+  const [anchor, setAnchor] = useState(() => startOfWeekLocal(new Date()));
   const [formTur, setFormTur] = useState(emptyTurnoForm());
   const [loadingTur, setLoadingTur] = useState(false);
   const [errorTur, setErrorTur] = useState("");
@@ -103,7 +190,31 @@ export default function ABMPanel({ onDataChanged }) {
     })();
   }, [useBackend]);
 
-  // ===== CRUD Pacientes =====
+  // ✅ Si viene un turno seleccionado desde grilla
+  useEffect(() => {
+    if (!selectedTurno) return;
+    const mapped = mapAppointmentToTurnoForm(selectedTurno);
+    if (!mapped) return;
+
+    setTab("turnos");
+    setFormTur(mapped);
+
+    if (mapped.fecha) {
+      const d = parseYMDToLocal(mapped.fecha);
+      if (d) setAnchor(startOfWeekLocal(d));
+    }
+  }, [selectedTurno]);
+
+  const pacientesOptions = useMemo(
+    () => pacList.map((p) => ({ id: p.id, nombre: p.nombre })),
+    [pacList]
+  );
+
+  const profesionalesOptions = useMemo(
+    () => proList.map((p) => ({ id: p.id, nombre: p.nombre, especialidad: p.especialidad })),
+    [proList]
+  );
+
   async function submitPaciente(e) {
     e.preventDefault();
     setErrorPac("");
@@ -112,7 +223,6 @@ export default function ABMPanel({ onDataChanged }) {
       if (formPac.id) await modificarPaciente(formPac);
       else await crearPaciente(formPac);
 
-      // recargar lista (necesaria para el select de turnos)
       try {
         const r = await listarPacientes();
         if (Array.isArray(r)) setPacList(r);
@@ -129,16 +239,50 @@ export default function ABMPanel({ onDataChanged }) {
     }
   }
 
-  // ===== CRUD Turnos =====
   async function submitTurno(e) {
     e.preventDefault();
     setErrorTur("");
     setLoadingTur(true);
+
     try {
+      const idPacienteNum = Number(formTur.idPaciente);
+      const idProfNum = Number(formTur.idProfecional);
+
       const payload = {
-        ...formTur,
-        idPaciente: Number(formTur.idPaciente),
-        idProfecional: Number(formTur.idProfecional),
+        ...(formTur.id ? { id: formTur.id } : {}),
+
+        // paciente
+        idPaciente: idPacienteNum,
+        paciente_id: idPacienteNum,
+        patient_id: idPacienteNum,
+
+        // profesional (variantes)
+        idProfecional: idProfNum,
+        idProfesional: idProfNum,
+        profesional_id: idProfNum,
+        doctor_id: idProfNum,
+
+        // fecha
+        fecha: formTur.fecha,
+        date: formTur.fecha,
+
+        // horas
+        horaIni: formTur.horaIni,
+        horaFin: formTur.horaFin,
+        hora_inicio: formTur.horaIni,
+        hora_fin: formTur.horaFin,
+
+        // tratamiento
+        tratamiento: formTur.tratamiento,
+        treatment: formTur.tratamiento,
+
+        // obs
+        obs: formTur.obs,
+        observaciones: formTur.obs,
+
+        // estado fijo (UI oculto)
+        estado: "pendiente",
+        status: "pendiente",
       };
 
       if (formTur.id) await modificarTurno(payload);
@@ -170,7 +314,7 @@ export default function ABMPanel({ onDataChanged }) {
 
   return (
     <div className="abm-panel">
-      {/* Tabs fijos (NO scrollean) */}
+      {/* Tabs NO scrolleables */}
       <div className="segmented">
         <button
           type="button"
@@ -189,9 +333,8 @@ export default function ABMPanel({ onDataChanged }) {
         </button>
       </div>
 
-      {/* ✅ Scroll real acá */}
+      {/* ✅ Scroll real: SOLO el contenido */}
       <div className="abm-scroll">
-        {/* ===================== PACIENTES ===================== */}
         {tab === "pacientes" && (
           <form className="form" onSubmit={submitPaciente} style={{ marginTop: 10 }}>
             <label>
@@ -316,11 +459,10 @@ export default function ABMPanel({ onDataChanged }) {
           </form>
         )}
 
-        {/* ===================== TURNOS ===================== */}
         {tab === "turnos" && (
           <form className="form" onSubmit={submitTurno} style={{ marginTop: 10 }}>
             <div className="inline" style={{ gap: 10 }}>
-              <span className="muted">Semana de {fmt(anchor)}</span>
+              <span className="muted">Semana de {fmtLocal(anchor)}</span>
               <div className="row-actions">
                 <button
                   type="button"
@@ -328,6 +470,7 @@ export default function ABMPanel({ onDataChanged }) {
                   onClick={() =>
                     setAnchor((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7))
                   }
+                  title="Semana anterior"
                 >
                   <span className="material-symbols-rounded">chevron_left</span>
                 </button>
@@ -337,6 +480,7 @@ export default function ABMPanel({ onDataChanged }) {
                   onClick={() =>
                     setAnchor((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7))
                   }
+                  title="Semana siguiente"
                 >
                   <span className="material-symbols-rounded">chevron_right</span>
                 </button>
@@ -357,7 +501,7 @@ export default function ABMPanel({ onDataChanged }) {
                   required
                 >
                   <option value="">-- Seleccionar paciente --</option>
-                  {pacList.map((p) => (
+                  {pacientesOptions.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre}
                     </option>
@@ -378,7 +522,7 @@ export default function ABMPanel({ onDataChanged }) {
                   required
                 >
                   <option value="">-- Seleccionar profesional --</option>
-                  {proList.map((p) => (
+                  {profesionalesOptions.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre}
                       {p.especialidad ? ` (${p.especialidad})` : ""}
@@ -442,18 +586,7 @@ export default function ABMPanel({ onDataChanged }) {
               />
             </label>
 
-            <label>
-              Estado
-              <select
-                value={formTur.estado}
-                onChange={(e) => setFormTur((s) => ({ ...s, estado: e.target.value }))}
-              >
-                <option value="pendiente">pendiente</option>
-                <option value="confirmado">confirmado</option>
-                <option value="cancelado">cancelado</option>
-                <option value="finalizado">finalizado</option>
-              </select>
-            </label>
+            {/* ✅ ESTADO QUITADO DEL UI */}
 
             {errorTur && (
               <div className="error">
@@ -473,6 +606,7 @@ export default function ABMPanel({ onDataChanged }) {
                     type="button"
                     className="btn-ghost"
                     onClick={() => setFormTur(emptyTurnoForm())}
+                    disabled={loadingTur}
                   >
                     Cancelar
                   </button>
@@ -482,8 +616,9 @@ export default function ABMPanel({ onDataChanged }) {
                     className="btn-ghost"
                     onClick={eliminarTurnoActual}
                     disabled={loadingTur}
+                    title="Eliminar turno"
                   >
-                    <span className="material-symbols-rounded">delete</span> Cancelar turno
+                    <span className="material-symbols-rounded">delete</span> Borrar turno
                   </button>
                 </>
               )}

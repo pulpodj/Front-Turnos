@@ -1553,3 +1553,166 @@ body.is-resizing{
   opacity: 0.85;
   color: #fff;
 }
+/* ============================
+   ScheduleGrid: multi-turnos por hora
+   ============================ */
+
+/* Cada celda puede tener varios turnos: mantenemos alto fijo y scrolleamos adentro */
+.sched .cell{
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px; /* que el scroll no tape */
+}
+
+/* Visual de selección cuando la secretaria clickea un turno */
+.sched .appt.is-selected{
+  outline: 2px solid rgba(38,132,254,.55);
+  box-shadow: 0 0 0 4px rgba(38,132,254,.12);
+}
+
+.sched .appt-more{
+  font-size: .78rem;
+  color: #5b7290;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(38,132,254,.06);
+  border: 1px dashed rgba(38,132,254,.20);
+}
+
+/* Variante compacta (secretaría) para que entren más cards por hora */
+.sched.compact{
+  --cell-gap: 6px;
+  --appt-min-h: 34px;
+  --appt-pad-y: 6px;
+  --appt-pad-x: 8px;
+}
+.sched.compact .appt-title{ font-size: .86rem; }
+.sched.compact .appt-sub{ font-size: .78rem; }
+
+/* ============================
+   Campanita de notificaciones
+   ============================ */
+
+.notif{ position: relative; }
+
+/* icono blanco */
+.notif-btn .material-symbols-rounded{ color: #fff; }
+
+.notif-badge{
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #ff4fa3;
+  color: #fff;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.notif-pop{
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  border-radius: 16px;
+  background: rgba(255,255,255,.92);
+  border: 1px solid rgba(38,132,254,.18);
+  box-shadow: 0 14px 34px rgba(12, 32, 65, .18);
+  overflow: hidden;
+  z-index: 50;
+  backdrop-filter: blur(10px);
+}
+
+.notif-pop__head{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(38,132,254,.10), rgba(38,132,254,.02));
+  border-bottom: 1px solid rgba(38,132,254,.12);
+}
+
+.notif-empty{
+  padding: 14px;
+  color: #5b7290;
+}
+
+.notif-list{
+  max-height: 340px;
+  overflow: auto;
+}
+
+.notif-item{
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(38,132,254,.10);
+}
+.notif-item:last-child{ border-bottom: 0; }
+
+.notif-item__title{ font-weight: 800; }
+.notif-item__meta{ color: #5b7290; font-size: .85rem; margin-top: 2px; }
+/* ===== Layout Médico: grilla + sidebar al costado ===== */
+.medico-layout{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px; /* izquierda flexible + sidebar fijo */
+  gap: 12px;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.medico-main{
+  min-width: 0;   /* CRÍTICO: que la grilla no empuje al sidebar */
+  min-height: 0;
+}
+
+.medico-side{
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Responsive: en pantallas chicas sí baja abajo */
+@media (max-width: 980px){
+  .medico-layout{
+    grid-template-columns: 1fr;
+  }
+  .medico-side{
+    order: 2;
+  }
+}
+/* ===== Asegurar que se vea el tratamiento en las cards ===== */
+.sched .appt{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+.sched .appt-title{
+  font-weight: 800;
+}
+
+.sched .appt-sub{
+  display: block !important;
+  opacity: 0.9;
+  font-size: 0.82rem;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* en compact (secretaría) */
+.sched.compact .appt-sub{
+  font-size: 0.78rem;
+  opacity: 0.92;
+}
