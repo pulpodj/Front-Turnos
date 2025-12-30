@@ -1,6 +1,7 @@
 // src/ui/Header.jsx
 import { useMemo } from "react";
 import { readSession } from "../utils/jwt.js";
+import NotificationsBell from "./NotificationsBell.jsx";
 
 function resolveDisplayName(payload, fallback) {
   const p = payload || {};
@@ -15,7 +16,12 @@ function resolveDisplayName(payload, fallback) {
   );
 }
 
-export default function Header({ doctorName, onLogout, enableHistorialButton }) {
+export default function Header({
+  doctorName,
+  onLogout,
+  enableHistorialButton,
+  showNotifications = false, // ✅ NUEVO: campanita solo cuando lo habilites
+}) {
   const sess = readSession();
   const payload = sess?.payload || null;
 
@@ -43,6 +49,9 @@ export default function Header({ doctorName, onLogout, enableHistorialButton }) 
       </div>
 
       <div className="header-actions">
+        {/* ✅ Campanita (solo si showNotifications) */}
+        {showNotifications && <NotificationsBell />}
+
         <div className="doctor">
           <span className="material-symbols-rounded" aria-hidden>
             stethoscope

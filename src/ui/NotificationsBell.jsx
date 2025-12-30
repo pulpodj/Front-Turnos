@@ -99,15 +99,17 @@ export default function NotificationsBell() {
   return (
     <div className="notif-wrap" ref={ref}>
       <button
-        type="button"
-        className="icon-btn notif-btn"
-        aria-label="Notificaciones"
-        title="Notificaciones"
-        onClick={() => setOpen((s) => !s)}
-      >
-        <span className="material-symbols-rounded">notifications</span>
-        {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
-      </button>
+  type="button"
+  className="btn-ghost notif-btn"
+  aria-label="Notificaciones"
+  title="Notificaciones"
+  onClick={() => setOpen((s) => !s)}
+>
+  <span className="material-symbols-rounded" aria-hidden>
+    notifications
+  </span>
+  {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
+</button>
 
       {open && (
         <div className="notif-pop">
