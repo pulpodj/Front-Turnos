@@ -1,46 +1,143 @@
 // src/ui/NotificationsBell.jsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  listarNotificaciones,
+  actualizarNotificacion,
+  borrarNotificacion,
+} from "../api/notificacionesBackend.js";
 
-const STORAGE_KEY = "gt_landing_leads"; // [{nombre,apellido,email,telefono,createdAt}]
-
-function readLeads() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const arr = JSON.parse(raw || "[]");
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
+function pickField(n, ...keys) {
+  for (const k of keys) {
+    const v = n?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
   }
+  return "";
+}
+
+function isRead(n) {
+  const v =
+    n?.leida ?? n?.leído ?? n?.leido ?? n?.read ?? n?.visto ?? n?.estado;
+  const s = String(v ?? "").toLowerCase().trim();
+  if (v === true || v === 1) return true;
+  if (["true", "1", "leida", "leído", "leido", "visto", "read"].includes(s)) return true;
+  return false;
+}
+
+function isBaja(n) {
+  const v = n?.baja ?? n?.deleted ?? n?.is_deleted ?? n?.activo;
+  const s = String(v ?? "").toLowerCase().trim();
+  if (v === true || v === 1) return true;
+  if (["true", "1"].includes(s)) return true;
+  if (v === false || v === 0) return true; // si viene activo=false
+  if (["false", "0"].includes(s)) return true;
+  return false;
 }
 
 export default function NotificationsBell() {
   const [open, setOpen] = useState(false);
-  const [leads, setLeads] = useState(() => readLeads());
-  const rootRef = useRef(null);
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const ref = useRef(null);
 
+  async function reload() {
+    setErr("");
+    setLoading(true);
+    try {
+      const data = await listarNotificaciones();
+      // ocultar bajas lógicas por las dudas
+      const clean = (Array.isArray(data) ? data : []).filter((n) => !isBaja(n));
+      // orden: más nuevas arriba si hay fecha
+      clean.sort((a, b) => {
+        const ta = new Date(pickField(a, "createdAt", "fecha", "created_at")).getTime() || 0;
+        const tb = new Date(pickField(b, "createdAt", "fecha", "created_at")).getTime() || 0;
+        return tb - ta;
+      });
+      setList(clean);
+    } catch (e) {
+      setErr(e?.message || "Error cargando notificaciones");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // carga inicial + polling suave
   useEffect(() => {
-    const t = setInterval(() => setLeads(readLeads()), 2000);
+    reload();
+    const t = setInterval(() => reload(), 15000); // 15s
     return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // cerrar al click afuera + ESC
   useEffect(() => {
-    const onDoc = (e) => {
-      if (!rootRef.current) return;
-      if (!rootRef.current.contains(e.target)) setOpen(false);
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    const onClickOutside = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onClickOutside);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onClickOutside);
+    };
   }, []);
 
-  const unreadCount = leads.length;
+  // cuando abrís, refresca
+  useEffect(() => {
+    if (open) reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const unreadCount = useMemo(
+    () => list.reduce((acc, n) => acc + (isRead(n) ? 0 : 1), 0),
+    [list]
+  );
+
+  async function markAsRead(n) {
+    const id = n?.id ?? n?._id;
+    if (!id) return;
+
+    // intentamos varias variantes de payload (por si tu backend usa otro nombre)
+    const payload = {
+      id,
+      leido: 1,
+      leida: true,
+      visto: true,
+      read: true,
+      estado: "leido",
+    };
+
+    try {
+      await actualizarNotificacion(payload);
+      await reload();
+    } catch (e) {
+      // si falla, no rompemos UI
+      console.error(e);
+      setErr(e?.message || "No se pudo marcar como leída");
+    }
+  }
+
+  async function removeNotif(n) {
+    const id = n?.id ?? n?._id;
+    if (!id) return;
+    try {
+      await borrarNotificacion(id);
+      await reload();
+    } catch (e) {
+      console.error(e);
+      setErr(e?.message || "No se pudo eliminar");
+    }
+  }
 
   return (
-    <div className="notif" ref={rootRef}>
+    <div className="notif-wrap" ref={ref}>
       <button
         type="button"
         className="btn-ghost notif-btn"
-        onClick={() => setOpen((s) => !s)}
+        aria-label="Notificaciones"
         title="Notificaciones"
+        onClick={() => setOpen((s) => !s)}
       >
         <span className="material-symbols-rounded" aria-hidden>
           notifications
@@ -50,33 +147,81 @@ export default function NotificationsBell() {
 
       {open && (
         <div className="notif-pop">
-          <div className="notif-pop__head">
-            <strong>Notificaciones</strong>
-            <span className="muted" style={{ marginLeft: "auto" }}>
-              Landing
-            </span>
+          <div className="notif-head">
+            <div className="notif-title">Notificaciones</div>
+            <div className="notif-actions">
+              <button type="button" className="btn-mini" onClick={reload} disabled={loading}>
+                {loading ? "…" : "Refrescar"}
+              </button>
+            </div>
           </div>
 
-          {leads.length === 0 ? (
-            <div className="notif-empty">No hay mensajes todavía.</div>
-          ) : (
-            <div className="notif-list">
-              {leads
-                .slice()
-                .reverse()
-                .slice(0, 20)
-                .map((n, idx) => (
-                  <div key={idx} className="notif-item">
-                    <div className="notif-item__title">
-                      {n.nombre || ""} {n.apellido || ""}
+          {err && <div className="notif-error">{err}</div>}
+
+          <div className="notif-body">
+            {list.length === 0 ? (
+              <div className="notif-empty muted">
+                {loading ? "Cargando…" : "No hay notificaciones."}
+              </div>
+            ) : (
+              list.map((n) => {
+                const nombre = pickField(n, "Nombre", "nombre");
+                const apellido = pickField(n, "Apellido", "apellido");
+                const email = pickField(n, "Email", "email", "mail");
+                const telefono = pickField(n, "Telefono", "telefono", "tel", "celular");
+                const created = pickField(n, "createdAt", "fecha", "created_at");
+
+                const unread = !isRead(n);
+
+                return (
+                  <div
+                    key={String(n.id ?? n._id ?? Math.random())}
+                    className={`notif-item ${unread ? "is-unread" : "is-read"}`}
+                  >
+                    <div className="notif-top">
+                      <div className="notif-name">
+                        {nombre || "—"} {apellido || ""}
+                      </div>
+                      <div className="notif-date">
+                        {created ? new Date(created).toLocaleString() : ""}
+                      </div>
                     </div>
-                    <div className="notif-item__meta">
-                      {n.email || "—"} • {n.telefono || "—"}
+
+                    <div className="notif-line">
+                      <span className="material-symbols-rounded">mail</span>
+                      <span>{email || "—"}</span>
+                    </div>
+
+                    <div className="notif-line">
+                      <span className="material-symbols-rounded">call</span>
+                      <span>{telefono || "—"}</span>
+                    </div>
+
+                    <div className="notif-row">
+                      <button
+                        type="button"
+                        className="btn-mini"
+                        onClick={() => markAsRead(n)}
+                        disabled={!unread}
+                        title="Marcar como leída"
+                      >
+                        Leída
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn-mini danger"
+                        onClick={() => removeNotif(n)}
+                        title="Eliminar (baja lógica)"
+                      >
+                        Eliminar
+                      </button>
                     </div>
                   </div>
-                ))}
-            </div>
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
       )}
     </div>
