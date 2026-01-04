@@ -1,5 +1,5 @@
 // src/ui/WeekCalendar.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const sameDay = (a, b) =>
   a &&
@@ -8,28 +8,46 @@ const sameDay = (a, b) =>
   a.getMonth() === b.getMonth() &&
   a.getDate() === b.getDate();
 
-export default function WeekCalendar({ anchorDate, selectedDate, onSelectDate }) {
-  const initial = anchorDate || selectedDate || new Date();
-  const [cursor, setCursor] = useState(
-    new Date(initial.getFullYear(), initial.getMonth(), 1)
-  );
+const sameMonth = (a, b) =>
+  a &&
+  b &&
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth();
 
-  // sincronizar mes visible cuando cambia anchorDate
+export default function WeekCalendar({ anchorDate, selectedDate, onSelectDate }) {
+  // Prioridad: selectedDate (lo que el usuario eligió) > anchorDate (inicio de semana) > hoy
+  const baseForCursor = useMemo(() => {
+    return selectedDate || anchorDate || new Date();
+  }, [selectedDate, anchorDate]);
+
+  const [cursor, setCursor] = useState(() => {
+    const initial = baseForCursor;
+    return new Date(initial.getFullYear(), initial.getMonth(), 1);
+  });
+
+  // ✅ sincroniza el mes visible cuando cambia la fecha seleccionada (o anchor si no hay selected)
   useEffect(() => {
-    if (anchorDate) {
-      setCursor(
-        new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1)
-      );
-    }
-  }, [anchorDate]);
+    if (!baseForCursor) return;
+
+    const target = new Date(baseForCursor.getFullYear(), baseForCursor.getMonth(), 1);
+
+    setCursor((prev) => {
+      // Evita setear de más (y evita “saltos” raros)
+      if (sameMonth(prev, target)) return prev;
+      return target;
+    });
+
+    // Log útil para debug
+    console.log("[WeekCalendar] sync cursor ->", {
+      selectedDate: selectedDate ? selectedDate.toISOString().slice(0, 10) : null,
+      anchorDate: anchorDate ? anchorDate.toISOString().slice(0, 10) : null,
+      cursor: target.toISOString().slice(0, 10),
+    });
+  }, [baseForCursor, selectedDate, anchorDate]);
 
   const firstOfMonth = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const startWeekday = (firstOfMonth.getDay() + 6) % 7; // lunes = 0
-  const daysInMonth = new Date(
-    cursor.getFullYear(),
-    cursor.getMonth() + 1,
-    0
-  ).getDate();
+  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
 
   const cells = [];
   for (let i = 0; i < startWeekday; i++) cells.push(null);
@@ -44,7 +62,7 @@ export default function WeekCalendar({ anchorDate, selectedDate, onSelectDate })
 
   const monthLabel = cursor
     .toLocaleDateString("es-AR", { month: "long", year: "numeric" })
-    .toUpperCase(); // <--- MAYÚSCULAS
+    .toUpperCase();
 
   return (
     <div className="calendar card">
@@ -53,22 +71,22 @@ export default function WeekCalendar({ anchorDate, selectedDate, onSelectDate })
           type="button"
           className="nav"
           onClick={() =>
-            setCursor(
-              new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1)
-            )
+            setCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))
           }
+          aria-label="Mes anterior"
         >
           &lt;
         </button>
+
         <div className="month-label">{monthLabel}</div>
+
         <button
           type="button"
           className="nav"
           onClick={() =>
-            setCursor(
-              new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
-            )
+            setCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))
           }
+          aria-label="Mes siguiente"
         >
           &gt;
         </button>
@@ -99,7 +117,7 @@ export default function WeekCalendar({ anchorDate, selectedDate, onSelectDate })
               key={idx}
               type="button"
               className={classNames}
-              onClick={d ? () => onSelectDate(d) : undefined}
+              onClick={d ? () => onSelectDate?.(d) : undefined}
               disabled={!d}
             >
               {d ? d.getDate() : ""}

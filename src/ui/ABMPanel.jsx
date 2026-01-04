@@ -23,11 +23,18 @@ const OBRAS_SOCIALES_FALLBACK = [
 ];
 
 // ===== Tratamientos (Turnos) =====
-const TURNOS_TRATAMIENTOS = [
-  "Terapia Manual",
-  "Kinesiología Convencional",
-  "Ejercicios Adaptados",
+const TRATAMIENTOS = [
+  { id: 1, nombre: "Terapia Manual" },
+  { id: 2, nombre: "Kinesiología Convencional" },
+  { id: 3, nombre: "Ejercicios Adaptados" },
 ];
+
+const tratamientoById = (id) =>
+  TRATAMIENTOS.find((t) => Number(t.id) === Number(id))?.nombre || "Terapia Manual";
+
+const tratamientoIdByNombre = (nombre) =>
+  TRATAMIENTOS.find((t) => String(t.nombre).toLowerCase() === String(nombre).toLowerCase())
+    ?.id || 1;
 
 // ===== Fechas (LOCAL) =====
 const fmtLocal = (d) => {
@@ -54,9 +61,8 @@ const emptyTurnoForm = () => ({
   fecha: fmtLocal(new Date()),
   horaIni: "07:00",
   horaFin: "08:00",
-  tratamiento: TURNOS_TRATAMIENTOS[0],
+  tratamientoId: 1,
   obs: "",
-  estado: "pendiente", // ✅ se mantiene internamente pero NO se muestra
 });
 
 function isValidYMD(s) {
@@ -70,11 +76,11 @@ function mapAppointmentToTurnoForm(appt) {
   const fecha = raw.fecha || raw.date || appt.date || fmtLocal(new Date());
 
   let horaIni =
-    raw.hora_inicio ||
     raw.horaIni ||
+    raw.hora_inicio ||
     raw.horaInicio ||
-    appt.raw?.hora_inicio ||
     appt.raw?.horaIni ||
+    appt.raw?.hora_inicio ||
     appt.raw?.horaInicio ||
     "";
 
@@ -83,29 +89,55 @@ function mapAppointmentToTurnoForm(appt) {
     else horaIni = "07:00";
   }
 
-  const horaFin = raw.hora_fin || raw.horaFin || appt.raw?.horaFin || "";
-  const tratamiento =
-    raw.tratamiento || raw.treatment || appt.treatment || TURNOS_TRATAMIENTOS[0];
+  let horaFin =
+    raw.horaFin ||
+    raw.hora_fin ||
+    appt.raw?.horaFin ||
+    appt.raw?.hora_fin ||
+    "";
 
-  const obs = raw.obs || raw.observaciones || raw.notas || appt.obs || "";
-  const estado = (raw.estado || appt.status || "pendiente").toString();
+  // Si no hay horaFin, estimamos con duración
+  if (!horaFin) {
+    const dur = Number(appt.duration || 1);
+    const baseH = Number(appt.hour || 7);
+    const endH = baseH + (Number.isFinite(dur) ? dur : 1);
+    const hh = String(Math.min(23, Math.max(0, Math.floor(endH)))).padStart(2, "0");
+    horaFin = `${hh}:00`;
+  }
 
   const idPaciente =
+    raw.idPaciente ??
     raw.paciente_id ??
     raw.patient_id ??
-    raw.idPaciente ??
-    raw.patientId ??
     appt.patientId ??
     "";
 
   const idProfecional =
-    raw.profesional_id ??
-    raw.doctor_id ??
     raw.idProfecional ??
     raw.idProfesional ??
-    raw.doctorId ??
+    raw.profesional_id ??
+    raw.doctor_id ??
     appt.doctorId ??
     "";
+
+  // ✅ tratamientoId: que el select quede bien al editar
+  const tratamientoIdRaw =
+    raw.idTratamiento ??
+    raw.tratamiento_id ??
+    raw.tratamientoId ??
+    raw.tipo_tratamiento ??
+    raw.idTipoTratamiento ??
+    null;
+
+  const tratamientoNombreRaw =
+    raw.tratamiento || raw.treatment || appt.treatment || "";
+
+  const tratamientoId =
+    tratamientoIdRaw != null
+      ? Number(tratamientoIdRaw)
+      : tratamientoIdByNombre(String(tratamientoNombreRaw || "Terapia Manual"));
+
+  const obs = raw.obs || raw.observaciones || raw.notas || appt.obs || "";
 
   // normalizar fecha a YYYY-MM-DD por si viene con timestamp
   let fechaYMD = String(fecha || "");
@@ -114,26 +146,15 @@ function mapAppointmentToTurnoForm(appt) {
     if (!Number.isNaN(dd.getTime())) fechaYMD = fmtLocal(dd);
   }
 
-  // Si no hay horaFin, estimamos con duración
-  let horaFinFinal = String(horaFin || "").trim();
-  if (!horaFinFinal) {
-    const dur = Number(appt.duration || 1);
-    const baseH = Number(appt.hour || 7);
-    const endH = baseH + (Number.isFinite(dur) ? dur : 1);
-    const hh = String(Math.min(23, Math.max(0, Math.floor(endH)))).padStart(2, "0");
-    horaFinFinal = `${hh}:00`;
-  }
-
   return {
     id: appt.id ?? raw.id ?? null,
     idPaciente: idPaciente ? Number(idPaciente) : "",
     idProfecional: idProfecional ? Number(idProfecional) : "",
     fecha: fechaYMD,
     horaIni: String(horaIni),
-    horaFin: String(horaFinFinal),
-    tratamiento: String(tratamiento),
+    horaFin: String(horaFin),
+    tratamientoId: Number(tratamientoId || 1),
     obs: String(obs),
-    estado: String(estado || "pendiente"),
   };
 }
 
@@ -245,44 +266,15 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
     setLoadingTur(true);
 
     try {
-      const idPacienteNum = Number(formTur.idPaciente);
-      const idProfNum = Number(formTur.idProfecional);
-
       const payload = {
         ...(formTur.id ? { id: formTur.id } : {}),
-
-        // paciente
-        idPaciente: idPacienteNum,
-        paciente_id: idPacienteNum,
-        patient_id: idPacienteNum,
-
-        // profesional (variantes)
-        idProfecional: idProfNum,
-        idProfesional: idProfNum,
-        profesional_id: idProfNum,
-        doctor_id: idProfNum,
-
-        // fecha
+        idPaciente: Number(formTur.idPaciente),
+        idProfecional: Number(formTur.idProfecional),
+        idTratamiento: Number(formTur.tratamientoId || 1), // ✅ backend real
         fecha: formTur.fecha,
-        date: formTur.fecha,
-
-        // horas
         horaIni: formTur.horaIni,
         horaFin: formTur.horaFin,
-        hora_inicio: formTur.horaIni,
-        hora_fin: formTur.horaFin,
-
-        // tratamiento
-        tratamiento: formTur.tratamiento,
-        treatment: formTur.tratamiento,
-
-        // obs
-        obs: formTur.obs,
-        observaciones: formTur.obs,
-
-        // estado fijo (UI oculto)
-        estado: "pendiente",
-        status: "pendiente",
+        obs: formTur.obs || "",
       };
 
       if (formTur.id) await modificarTurno(payload);
@@ -333,7 +325,7 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
         </button>
       </div>
 
-      {/* ✅ Scroll real: SOLO el contenido */}
+      {/* Scroll real: SOLO el contenido */}
       <div className="abm-scroll">
         {tab === "pacientes" && (
           <form className="form" onSubmit={submitPaciente} style={{ marginTop: 10 }}>
@@ -567,12 +559,16 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
             <label>
               Tratamiento
               <select
-                value={formTur.tratamiento}
-                onChange={(e) => setFormTur((s) => ({ ...s, tratamiento: e.target.value }))}
+                value={formTur.tratamientoId}
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  setFormTur((s) => ({ ...s, tratamientoId: id }));
+                }}
+                required
               >
-                {TURNOS_TRATAMIENTOS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+                {TRATAMIENTOS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nombre}
                   </option>
                 ))}
               </select>
@@ -585,8 +581,6 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                 onChange={(e) => setFormTur((s) => ({ ...s, obs: e.target.value }))}
               />
             </label>
-
-            {/* ✅ ESTADO QUITADO DEL UI */}
 
             {errorTur && (
               <div className="error">

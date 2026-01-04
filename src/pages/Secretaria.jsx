@@ -29,7 +29,7 @@ const addDays = (d, n) => {
   return x;
 };
 
-// ✅ YYYY-MM-DD en LOCAL (evita +1 día por UTC)
+// ✅ YYYY-MM-DD en LOCAL
 const fmtLocal = (d) => {
   const x = d instanceof Date ? d : new Date(d);
   const y = x.getFullYear();
@@ -40,7 +40,6 @@ const fmtLocal = (d) => {
 
 function themeByDoctorName(name) {
   const n = String(name || "").toLowerCase();
-  // Ignacio = celeste / Milton = verde
   if (n.includes("ignacio")) return { color: "#daf8ff", edge: "#5290aa" };
   if (n.includes("milton")) return { color: "#e6ffef", edge: "#2fbf71" };
   return null;
@@ -76,9 +75,7 @@ export default function Secretaria() {
       try {
         const profs = await listarProfesionales();
         setDoctors(
-          Array.isArray(profs)
-            ? profs.map((p) => ({ id: p.id, name: p.nombre }))
-            : []
+          Array.isArray(profs) ? profs.map((p) => ({ id: p.id, name: p.nombre })) : []
         );
       } catch (err) {
         console.error("Error listando profesionales:", err);
@@ -97,9 +94,34 @@ export default function Secretaria() {
       const weekISO = fmtLocal(weekStart);
       const realList = await fetchTurnosSecretariaSemana(weekISO, doctorId || undefined);
 
+      const doctorNameById = new Map(doctors.map((d) => [String(d.id), d.name]));
+
       const themed = (Array.isArray(realList) ? realList : []).map((it) => {
-        const theme = themeByDoctorName(it.doctorName);
-        return theme ? { ...it, color: theme.color, edge: theme.edge } : it;
+        const raw = it?.raw || {};
+
+        const resolvedDoctorId =
+          it.doctorId ??
+          raw.profesional_id ??
+          raw.doctor_id ??
+          raw.idProfesional ??
+          raw.idProfecional ??
+          null;
+
+        const resolvedDoctorName =
+          it.doctorName ||
+          raw.profesional_nombre ||
+          doctorNameById.get(String(resolvedDoctorId ?? "")) ||
+          "";
+
+        // ✅ secretaría: colores por médico
+        const theme = themeByDoctorName(resolvedDoctorName);
+
+        return {
+          ...it,
+          doctorId: resolvedDoctorId ?? it.doctorId,
+          doctorName: resolvedDoctorName,
+          ...(theme ? { color: theme.color, edge: theme.edge } : {}),
+        };
       });
 
       setItems(themed);
@@ -112,16 +134,14 @@ export default function Secretaria() {
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart, doctorId, useBackend]);
+  }, [weekStart, doctorId, useBackend, doctors.length]);
 
   const logout = () => {
     sessionStorage.removeItem("gt_backend_token");
     window.location.href = "/login";
   };
 
-  const handleSelectAppt = (appt) => {
-    setSelectedAppt(appt || null);
-  };
+  const handleSelectAppt = (appt) => setSelectedAppt(appt || null);
 
   const handleCalendarSelect = (d) => {
     const clean = d instanceof Date ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : d;
@@ -164,6 +184,7 @@ export default function Secretaria() {
             </option>
           ))}
         </select>
+
         {selectedAppt && (
           <button className="btn-ghost" onClick={() => setSelectedAppt(null)}>
             Limpiar selección
@@ -205,7 +226,7 @@ export default function Secretaria() {
       <Header
         doctorName="Secretaría"
         onLogout={logout}
-        enableHistorialButton={false} // ✅ NUNCA en secretaría
+        enableHistorialButton={false}
         showNotifications
       />
 

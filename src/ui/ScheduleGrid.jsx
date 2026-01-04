@@ -71,7 +71,9 @@ export default function ScheduleGrid(props) {
                       <button
                         key={it.id}
                         type="button"
-                        className={`appt${selectedId && String(it.id) === selectedId ? " is-selected" : ""}`}
+                        className={`appt${
+                          selectedId && String(it.id) === selectedId ? " is-selected" : ""
+                        }`}
                         onClick={() => onSelectAppt?.(it)}
                         style={{
                           background: it.color,
@@ -81,17 +83,17 @@ export default function ScheduleGrid(props) {
                           border: "none",
                           textAlign: "left",
                         }}
-                        title={it.treatment || ""}
+                        title={`${it.patient || ""}${it.treatment ? " • " + it.treatment : ""}`}
                       >
                         <div className="appt-title">{it.patient || "—"}</div>
-                        <div className="appt-sub">{it.treatment || ""}</div>
+                        <div className="appt-sub">
+                          {it.treatment ? it.treatment : "Sin tratamiento"}
+                        </div>
                       </button>
                     ))}
 
                     {cellItems.length > MAX_PER_CELL && (
-                      <div className="appt-more">
-                        +{cellItems.length - MAX_PER_CELL} más
-                      </div>
+                      <div className="appt-more">+{cellItems.length - MAX_PER_CELL} más</div>
                     )}
                   </div>
                 );
