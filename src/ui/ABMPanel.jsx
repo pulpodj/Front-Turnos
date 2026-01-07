@@ -54,6 +54,21 @@ const startOfWeekLocal = (d) => {
   return x;
 };
 
+// ✅ sumar días en local (para repetir semanal sin corrimientos)
+function addDaysLocal(dateObj, days) {
+  const d = new Date(dateObj);
+  // mediodía para evitar saltos por DST/timezone
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// ✅ debug opcional (fácil de apagar)
+const DEBUG_REPEAT =
+  typeof window !== "undefined" &&
+  window?.localStorage?.getItem("gt_debug_repeat") === "1";
+
 const emptyTurnoForm = () => ({
   id: null,
   idPaciente: "",
@@ -63,6 +78,8 @@ const emptyTurnoForm = () => ({
   horaFin: "08:00",
   tratamientoId: 1,
   obs: "",
+  // ✅ (UI) x1..x4
+  repeatCount: 1,
 });
 
 function isValidYMD(s) {
@@ -155,6 +172,8 @@ function mapAppointmentToTurnoForm(appt) {
     horaFin: String(horaFin),
     tratamientoId: Number(tratamientoId || 1),
     obs: String(obs),
+    // ✅ al editar, por UI lo dejamos en x1
+    repeatCount: 1,
   };
 }
 
@@ -179,6 +198,21 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
   const [formTur, setFormTur] = useState(emptyTurnoForm());
   const [loadingTur, setLoadingTur] = useState(false);
   const [errorTur, setErrorTur] = useState("");
+
+  // === Repeticiones (UI): x1..x4 solo para Terapia Manual ===
+  useEffect(() => {
+    // Si no es Terapia Manual, forzamos x1
+    if (Number(formTur.tratamientoId) !== 1) {
+      setFormTur((s) => ({ ...s, repeatCount: 1 }));
+    } else {
+      // clamp 1..4
+      setFormTur((s) => ({
+        ...s,
+        repeatCount: Math.min(4, Math.max(1, Number(s.repeatCount || 1))),
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formTur.tratamientoId]);
 
   // ===== Carga inicial =====
   useEffect(() => {
@@ -266,8 +300,7 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
     setLoadingTur(true);
 
     try {
-      const payload = {
-        ...(formTur.id ? { id: formTur.id } : {}),
+      const payloadBase = {
         idPaciente: Number(formTur.idPaciente),
         idProfecional: Number(formTur.idProfecional),
         idTratamiento: Number(formTur.tratamientoId || 1), // ✅ backend real
@@ -277,8 +310,37 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
         obs: formTur.obs || "",
       };
 
-      if (formTur.id) await modificarTurno(payload);
-      else await crearTurno(payload);
+      if (formTur.id) {
+        // ✅ edición: 1 solo
+        const payload = { ...payloadBase, id: formTur.id };
+        await modificarTurno(payload);
+      } else {
+        // ✅ alta: si Terapia Manual, respetar x1..x4 (semanal)
+        const isTerapiaManual = Number(formTur.tratamientoId) === 1;
+        const repeatCount = isTerapiaManual
+          ? Math.min(4, Math.max(1, Number(formTur.repeatCount || 1)))
+          : 1;
+
+        const baseDate = parseYMDToLocal(formTur.fecha) || new Date(formTur.fecha);
+
+        if (DEBUG_REPEAT) {
+          console.log("[ABMPanel] crear turno(s)", {
+            repeatCount,
+            fechaBase: formTur.fecha,
+            payloadBase,
+          });
+        }
+
+        for (let i = 0; i < repeatCount; i++) {
+          const d = addDaysLocal(baseDate, i * 7);
+          const fecha = fmtLocal(d);
+          const payload = { ...payloadBase, fecha };
+
+          if (DEBUG_REPEAT) console.log("[ABMPanel] crearTurno", { i, fecha, payload });
+
+          await crearTurno(payload);
+        }
+      }
 
       setFormTur(emptyTurnoForm());
       onDataChanged && onDataChanged();
@@ -573,6 +635,27 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                 ))}
               </select>
             </label>
+
+            {/* x1..x4: solo Terapia Manual */}
+            {Number(formTur.tratamientoId) === 1 && (
+              <label>
+                Repetir (semanal)
+                <select
+                  value={formTur.id ? 1 : (formTur.repeatCount || 1)}
+                  onChange={(e) =>
+                    setFormTur((s) => ({ ...s, repeatCount: Number(e.target.value) }))
+                  }
+                  disabled={!!formTur.id}
+                  title={formTur.id ? "En edición no se repite" : "xN crea repeticiones semanales"}
+                >
+                  {[1, 2, 3, 4].map((n) => (
+                    <option key={n} value={n}>
+                      x{n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <label>
               Observaciones

@@ -41,11 +41,11 @@ export async function listarMovimientos() {
 }
 
 export async function obtenerMovimiento(id) {
-  return httpJSON(`/API/movimientos/${id}`, { method: "GET" });
+  return httpJSON(`/API/movimiento/${id}`, { method: "GET" });
 }
 
 export async function crearMovimiento(payload) {
-  return httpJSON("/API/movimientos", {
+  return httpJSON("/API/movimiento", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -53,14 +53,14 @@ export async function crearMovimiento(payload) {
 
 export async function modificarMovimiento(payload) {
   if (!payload?.id) throw new Error("Falta id para modificar movimiento.");
-  return httpJSON(`/API/movimientos/${payload.id}`, {
+  return httpJSON(`/API/movimiento/${payload.id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
   });
 }
 
 export async function eliminarMovimiento(id) {
-  return httpJSON(`/API/movimientos/${id}`, { method: "DELETE" });
+  return httpJSON(`/API/movimiento/${id}`, { method: "DELETE" });
 }
 
 // GET /API/movimiento_tipos (si lo usás más adelante)
