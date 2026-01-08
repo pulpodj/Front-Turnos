@@ -1,0 +1,76 @@
+/* src/styles.responsive.css
+   Ajustes “notebook” para 1366x768 (y pantallas de poca altura)
+   - No afecta desktop 1080p+ (1920x1080)
+   - Reduce escala general y mejora espacio vertical
+*/
+
+@media (max-width: 1366px), (max-height: 820px) {
+  /* Escala global (REM) + tuneo de grilla */
+  :root{
+    font-size: 14px;      /* 16px -> 14px (~87.5%) */
+    --row-h: 64px;        /* 80px -> 64px */
+    --cell-gap: 10px;     /* 16px -> 10px */
+    --appt-min-h: 48px;   /* 58px -> 48px */
+    --appt-pad-y: 8px;    /* 10px -> 8px */
+    --appt-pad-x: 10px;   /* 12px -> 10px */
+  }
+
+  /* Login (menos “grandote”) */
+  .glass{
+    width: min(94vw, 420px);
+    padding: 22px 18px;
+  }
+  .login-card h1{
+    font-size: 1.55rem; /* 1.8rem -> 1.55rem */
+  }
+
+  /* Botonera segmentada y forms */
+  .segmented{ padding: 5px; }
+  .segmented button{
+    padding: 8px 10px;
+  }
+
+  .form{ gap: 12px; }
+  .form label{ gap: 6px; }
+  .form input,
+  .form textarea{
+    padding: 10px 12px;
+  }
+
+  .primary{
+    padding: 10px 14px;
+  }
+
+  /* Grilla / agenda: ganar ancho y alto útil */
+  .sched-head{
+    grid-template-columns: 80px repeat(5, 1fr);
+  }
+  .sched-body{
+    grid-template-columns: 80px 1fr;
+  }
+
+  .sched-col-head{
+    padding: 8px;
+  }
+
+  .time-cell{
+    padding: 6px 8px;
+    font-size: .82rem;
+  }
+
+  .cell{
+    padding: 5px;
+  }
+
+  .appt{
+    gap: 5px;
+    border-top-width: 3px;
+  }
+
+  .appt-title{
+    font-size: .95rem;
+  }
+  .appt-sub{
+    font-size: .82rem;
+  }
+}

@@ -37,15 +37,16 @@ export function mapMovimientoToForm(m) {
 // Si ya tenías estas rutas con otro nombre en tu backend,
 // avisame y lo alineamos. Yo las dejé en formato estándar.
 export async function listarMovimientos() {
-  return httpJSON("/API/movimientos", { method: "GET" });
+  // ✅ endpoint real (sin "s")
+  return httpJSON("/API/movimiento", { method: "GET" });
 }
 
 export async function obtenerMovimiento(id) {
-  return httpJSON(`/API/movimientos/${id}`, { method: "GET" });
+  return httpJSON(`/API/movimiento/${id}`, { method: "GET" });
 }
 
 export async function crearMovimiento(payload) {
-  return httpJSON("/API/movimientos", {
+  return httpJSON("/API/movimiento", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -53,14 +54,14 @@ export async function crearMovimiento(payload) {
 
 export async function modificarMovimiento(payload) {
   if (!payload?.id) throw new Error("Falta id para modificar movimiento.");
-  return httpJSON(`/API/movimientos/${payload.id}`, {
+  return httpJSON(`/API/movimiento/${payload.id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
   });
 }
 
 export async function eliminarMovimiento(id) {
-  return httpJSON(`/API/movimientos/${id}`, { method: "DELETE" });
+  return httpJSON(`/API/movimiento/${id}`, { method: "DELETE" });
 }
 
 // GET /API/movimiento_tipos (si lo usás más adelante)
@@ -72,17 +73,19 @@ export async function listarMovimientoTipos() {
 export async function searchMovimientos(params = {}) {
   const qs = new URLSearchParams();
 
-  if (params.fecha_desde) qs.set("fecha_desde", params.fecha_desde);
-  if (params.fecha_hasta) qs.set("fecha_hasta", params.fecha_hasta);
-  if (params.id_cliente) qs.set("id_cliente", String(params.id_cliente));
+  // ✅ El backend espera SIEMPRE los 4 parámetros.
+  // Defaults amplios para evitar 500 cuando el user deja filtros vacíos.
+  const fechaDesde = params.fecha_desde || "1900-01-01";
+  const fechaHasta = params.fecha_hasta || "2999-12-31";
+  const idCliente = params.id_cliente ?? 0; // permite 0
+  const idTipo = Array.isArray(params.id_movimiento_tipo)
+    ? (params.id_movimiento_tipo[0] ?? 0)
+    : params.id_movimiento_tipo ?? 0;
 
-  // soporta: number | string | array -> CSV "1,2,3"
-  if (params.id_movimiento_tipo != null && params.id_movimiento_tipo !== "") {
-    const v = Array.isArray(params.id_movimiento_tipo)
-      ? params.id_movimiento_tipo.join(",")
-      : String(params.id_movimiento_tipo);
-    qs.set("id_movimiento_tipo", v);
-  }
+  qs.set("fecha_desde", String(fechaDesde));
+  qs.set("fecha_hasta", String(fechaHasta));
+  qs.set("id_cliente", String(idCliente));
+  qs.set("id_movimiento_tipo", String(idTipo));
 
   const query = qs.toString();
   const path = query ? `/API/searchMovimientos?${query}` : "/API/searchMovimientos";

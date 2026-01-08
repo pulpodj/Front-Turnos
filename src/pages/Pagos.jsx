@@ -104,28 +104,54 @@ export default function Pagos() {
   async function buscar() {
     setErr("");
 
-    if (!pacienteId) {
-      setMovimientos([]);
-      setSelectedId(null);
-      return;
-    }
+    // ✅ En el backend, "0" significa "sin filtro por paciente".
+    // La API /API/searchMovimientos espera SIEMPRE 4 params.
+    const idCliente = pacienteId ? Number(pacienteId) : 0;
+    const fechaDesde = desde || "1900-01-01";
+    const fechaHasta = hasta || "2999-12-31";
+    const tipos = (tiposSeleccionados && tiposSeleccionados.length)
+      ? tiposSeleccionados
+      : [0];
 
     setLoading(true);
     try {
-      const data = await searchMovimientos({
-        fecha_desde: desde || undefined,
-        fecha_hasta: hasta || undefined,
-        id_cliente: pacienteId,
-        id_movimiento_tipo: tiposSeleccionados.length ? tiposSeleccionados : undefined,
+      // ✅ El backend suele esperar un solo id_movimiento_tipo.
+      // Para mantener el multiselect del UI, hacemos 1 request por tipo y unimos.
+      const fetched = [];
+      for (const t of tipos) {
+        const data = await searchMovimientos({
+          fecha_desde: fechaDesde,
+          fecha_hasta: fechaHasta,
+          id_cliente: idCliente,
+          id_movimiento_tipo: t,
+        });
+
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.movimientos)
+          ? data.movimientos
+          : [];
+
+        fetched.push(...list);
+      }
+
+      // de-dupe por id
+      const byId = new Map();
+      for (const m of fetched) {
+        const k = String(m?.id ?? "");
+        if (!k) continue;
+        if (!byId.has(k)) byId.set(k, m);
+      }
+
+      const merged = Array.from(byId.values());
+      // orden por fecha desc (si existe)
+      merged.sort((a, b) => {
+        const ta = new Date(a?.fecha || 0).getTime();
+        const tb = new Date(b?.fecha || 0).getTime();
+        return tb - ta;
       });
 
-      const list = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.movimientos)
-        ? data.movimientos
-        : [];
-
-      setMovimientos(list);
+      setMovimientos(merged);
       setSelectedId(null);
     } catch (e) {
       setErr(e.message || "No se pudo buscar movimientos.");
@@ -152,20 +178,44 @@ export default function Pagos() {
 
   async function calcularSaldoTotal() {
     setSaldoTotal(null);
-    if (!pacienteId) return;
+
+    // ✅ Permite calcular total con y sin paciente (0 = todos)
+    const idCliente = pacienteId ? Number(pacienteId) : 0;
+    const fechaDesde = "1900-01-01";
+    const fechaHasta = "2999-12-31";
+    const tipos = (tiposSeleccionados && tiposSeleccionados.length)
+      ? tiposSeleccionados
+      : [0];
 
     setSaldoTotalLoading(true);
     try {
-      const data = await searchMovimientos({
-        id_cliente: pacienteId,
-        id_movimiento_tipo: tiposSeleccionados.length ? tiposSeleccionados : undefined,
-      });
+      const fetched = [];
+      for (const t of tipos) {
+        const data = await searchMovimientos({
+          fecha_desde: fechaDesde,
+          fecha_hasta: fechaHasta,
+          id_cliente: idCliente,
+          id_movimiento_tipo: t,
+        });
 
-      const list = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.movimientos)
-        ? data.movimientos
-        : [];
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.movimientos)
+          ? data.movimientos
+          : [];
+
+        fetched.push(...list);
+      }
+
+      // de-dupe por id
+      const byId = new Map();
+      for (const m of fetched) {
+        const k = String(m?.id ?? "");
+        if (!k) continue;
+        if (!byId.has(k)) byId.set(k, m);
+      }
+
+      const list = Array.from(byId.values());
 
       let d = 0,
         h = 0;
@@ -185,7 +235,7 @@ export default function Pagos() {
   const rows = useMemo(() => {
     return movimientos.map((m) => ({
       ...m,
-      pacienteNombre: pacPorId[String(m.id_cliente)] || m.id_cliente,
+      pacienteNombre: pacPorId[String(m.id_cliente)] || m.paciente_nombre || m.cliente_nombre || m.id_cliente,
       tipoNombre: tipoPorId[String(m.id_movimiento_tipo)] || m.id_movimiento_tipo,
     }));
   }, [movimientos, pacPorId, tipoPorId]);
@@ -453,6 +503,7 @@ export default function Pagos() {
                 <tr>
                   <th>ID</th>
                   <th>Fecha</th>
+                  <th>Paciente</th>
                   <th>Tipo</th>
                   <th>Debe</th>
                   <th>Haber</th>

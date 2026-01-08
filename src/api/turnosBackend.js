@@ -57,19 +57,26 @@ function toYMDLocalFromUnknownDate(fecha) {
   return "";
 }
 
-// Normaliza distintas formas posibles de respuesta del backend
+// ✅ Normaliza distintas formas posibles de respuesta del backend
+// FIX: soportar { turno: [] } (Postman muestra eso para profesional)
 function normalizeTurnosResponse(data) {
   if (!data) return [];
   if (Array.isArray(data)) return data;
 
   // comunes
   if (Array.isArray(data.turnos)) return data.turnos;
+
+  // ✅ si "turno" es array -> devolverlo directo
+  if (Array.isArray(data.turno)) return data.turno;
   if (data.turno) return [data.turno];
 
   // a veces envuelven en {data: ...}
   if (data.data) {
     if (Array.isArray(data.data)) return data.data;
     if (Array.isArray(data.data.turnos)) return data.data.turnos;
+
+    // ✅ si data.data.turno es array
+    if (Array.isArray(data.data.turno)) return data.data.turno;
     if (data.data.turno) return [data.data.turno];
   }
 

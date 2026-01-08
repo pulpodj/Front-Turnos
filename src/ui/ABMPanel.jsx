@@ -14,6 +14,9 @@ import {
 import { getBackendToken } from "../api/http.js";
 import { parseYMDToLocal } from "../utils/date.js";
 
+// ✅ NUEVO: para validar disponibilidad del profesional antes de crear
+import { fetchTurnosProfesionalPorFecha } from "../api/turnosBackend.js";
+
 // ===== Obras sociales (fallback local) =====
 const OBRAS_SOCIALES_FALLBACK = [
   { id: 1, nombre: "OSDE" },
@@ -30,11 +33,13 @@ const TRATAMIENTOS = [
 ];
 
 const tratamientoById = (id) =>
-  TRATAMIENTOS.find((t) => Number(t.id) === Number(id))?.nombre || "Terapia Manual";
+  TRATAMIENTOS.find((t) => Number(t.id) === Number(id))?.nombre ||
+  "Terapia Manual";
 
 const tratamientoIdByNombre = (nombre) =>
-  TRATAMIENTOS.find((t) => String(t.nombre).toLowerCase() === String(nombre).toLowerCase())
-    ?.id || 1;
+  TRATAMIENTOS.find(
+    (t) => String(t.nombre).toLowerCase() === String(nombre).toLowerCase()
+  )?.id || 1;
 
 // ===== Fechas (LOCAL) =====
 const fmtLocal = (d) => {
@@ -54,6 +59,26 @@ const startOfWeekLocal = (d) => {
   return x;
 };
 
+// ✅ sumar días en local (para repetir semanal sin corrimientos)
+function addDaysLocal(dateObj, days) {
+  const d = new Date(dateObj);
+  // mediodía para evitar saltos por DST/timezone
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// ✅ debug opcional (fácil de apagar)
+const DEBUG_REPEAT =
+  typeof window !== "undefined" &&
+  window?.localStorage?.getItem("gt_debug_repeat") === "1";
+
+// ✅ debug opcional para disponibilidad
+const DEBUG_AVAIL =
+  typeof window !== "undefined" &&
+  window?.localStorage?.getItem("gt_debug_avail") === "1";
+
 const emptyTurnoForm = () => ({
   id: null,
   idPaciente: "",
@@ -63,6 +88,8 @@ const emptyTurnoForm = () => ({
   horaFin: "08:00",
   tratamientoId: 1,
   obs: "",
+  // ✅ (UI) x1..x4
+  repeatCount: 1,
 });
 
 function isValidYMD(s) {
@@ -101,16 +128,15 @@ function mapAppointmentToTurnoForm(appt) {
     const dur = Number(appt.duration || 1);
     const baseH = Number(appt.hour || 7);
     const endH = baseH + (Number.isFinite(dur) ? dur : 1);
-    const hh = String(Math.min(23, Math.max(0, Math.floor(endH)))).padStart(2, "0");
+    const hh = String(Math.min(23, Math.max(0, Math.floor(endH)))).padStart(
+      2,
+      "0"
+    );
     horaFin = `${hh}:00`;
   }
 
   const idPaciente =
-    raw.idPaciente ??
-    raw.paciente_id ??
-    raw.patient_id ??
-    appt.patientId ??
-    "";
+    raw.idPaciente ?? raw.paciente_id ?? raw.patient_id ?? appt.patientId ?? "";
 
   const idProfecional =
     raw.idProfecional ??
@@ -155,7 +181,64 @@ function mapAppointmentToTurnoForm(appt) {
     horaFin: String(horaFin),
     tratamientoId: Number(tratamientoId || 1),
     obs: String(obs),
+    // ✅ al editar, por UI lo dejamos en x1
+    repeatCount: 1,
   };
+}
+
+/** =========================
+ * ✅ Helpers disponibilidad (frontend)
+ * ========================= */
+function parseHMToMinutes(hm) {
+  const s = String(hm || "");
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return hh * 60 + mm;
+}
+
+function getApptStartEndMinutes(appt) {
+  // intentamos por raw primero
+  const raw = appt?.raw || {};
+  const ini =
+    raw.horaIni ||
+    raw.hora_inicio ||
+    raw.horaInicio ||
+    appt?.horaIni ||
+    appt?.hora_inicio ||
+    appt?.horaInicio ||
+    null;
+
+  const fin =
+    raw.horaFin ||
+    raw.hora_fin ||
+    raw.horaFinal ||
+    appt?.horaFin ||
+    appt?.hora_fin ||
+    null;
+
+  const s = parseHMToMinutes(ini);
+  let e = parseHMToMinutes(fin);
+
+  if (s != null && e == null) {
+    // fallback: hour + duration
+    const hour = Number(appt?.hour ?? 0);
+    const dur = Number(appt?.duration ?? 1);
+    e =
+      Number.isFinite(hour) && Number.isFinite(dur)
+        ? hour * 60 + dur * 60
+        : null;
+  }
+
+  return { start: s, end: e };
+}
+
+function overlaps(aStart, aEnd, bStart, bEnd) {
+  if (aStart == null || aEnd == null || bStart == null || bEnd == null)
+    return false;
+  return aStart < bEnd && aEnd > bStart;
 }
 
 export default function ABMPanel({ onDataChanged, selectedTurno }) {
@@ -168,6 +251,10 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
   const [loadingPac, setLoadingPac] = useState(false);
   const [errorPac, setErrorPac] = useState("");
 
+  // ✅ Modo pacientes (Nuevo / Modificar) + id seleccionado
+  const [pacMode, setPacMode] = useState("nuevo"); // "nuevo" | "modificar"
+  const [pacEditId, setPacEditId] = useState("");
+
   // ===== Profesionales (solo para Turnos) =====
   const [proList, setProList] = useState([]);
 
@@ -179,6 +266,21 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
   const [formTur, setFormTur] = useState(emptyTurnoForm());
   const [loadingTur, setLoadingTur] = useState(false);
   const [errorTur, setErrorTur] = useState("");
+
+  // === Repeticiones (UI): x1..x4 solo para Terapia Manual ===
+  useEffect(() => {
+    // Si no es Terapia Manual, forzamos x1
+    if (Number(formTur.tratamientoId) !== 1) {
+      setFormTur((s) => ({ ...s, repeatCount: 1 }));
+    } else {
+      // clamp 1..4
+      setFormTur((s) => ({
+        ...s,
+        repeatCount: Math.min(4, Math.max(1, Number(s.repeatCount || 1))),
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formTur.tratamientoId]);
 
   // ===== Carga inicial =====
   useEffect(() => {
@@ -232,17 +334,53 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
   );
 
   const profesionalesOptions = useMemo(
-    () => proList.map((p) => ({ id: p.id, nombre: p.nombre, especialidad: p.especialidad })),
+    () =>
+      proList.map((p) => ({
+        id: p.id,
+        nombre: p.nombre,
+        especialidad: p.especialidad,
+      })),
     [proList]
   );
+
+  // ✅ cuando cambia modo pacientes, reseteamos selección/form
+  useEffect(() => {
+    setErrorPac("");
+    if (pacMode === "nuevo") {
+      setPacEditId("");
+      setFormPac(mapPacienteABMForm({}));
+    } else {
+      setPacEditId("");
+      setFormPac(mapPacienteABMForm({}));
+    }
+  }, [pacMode]);
+
+  // ✅ al seleccionar paciente para modificar, cargamos el form
+  useEffect(() => {
+    if (pacMode !== "modificar") return;
+
+    if (!pacEditId) {
+      setFormPac(mapPacienteABMForm({}));
+      return;
+    }
+
+    const found = pacList.find((p) => String(p.id) === String(pacEditId));
+    if (found) setFormPac(mapPacienteABMForm(found));
+    else setFormPac(mapPacienteABMForm({}));
+  }, [pacMode, pacEditId, pacList]);
 
   async function submitPaciente(e) {
     e.preventDefault();
     setErrorPac("");
     setLoadingPac(true);
     try {
-      if (formPac.id) await modificarPaciente(formPac);
-      else await crearPaciente(formPac);
+      if (pacMode === "modificar") {
+        if (!formPac.id)
+          throw new Error("Seleccioná un paciente para modificar.");
+        await modificarPaciente(formPac);
+      } else {
+        await crearPaciente(formPac);
+      }
 
       try {
         const r = await listarPacientes();
@@ -251,7 +389,13 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
         console.error("Error recargando pacientes", e2);
       }
 
-      setFormPac(mapPacienteABMForm({}));
+      if (pacMode === "modificar") {
+        setPacEditId("");
+        setFormPac(mapPacienteABMForm({}));
+      } else {
+        setFormPac(mapPacienteABMForm({}));
+      }
+
       onDataChanged && onDataChanged();
     } catch (err) {
       setErrorPac(err.message || "Error al guardar paciente");
@@ -260,14 +404,72 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
     }
   }
 
+  /** ✅ Validación previa de disponibilidad (solo para crear tratamientos 1/2) */
+  async function validarDisponibilidadProfesional({
+    profesionalId,
+    fechaYMD,
+    horaIni,
+    horaFin,
+  }) {
+    const profIdNum = Number(profesionalId);
+    if (!Number.isFinite(profIdNum) || !fechaYMD) return null;
+
+    const myStart = parseHMToMinutes(horaIni);
+    const myEnd = parseHMToMinutes(horaFin);
+
+    if (myStart == null || myEnd == null) return null;
+
+    const profName =
+      proList.find((p) => String(p.id) === String(profesionalId))?.nombre ||
+      "El profesional";
+
+    let appts = [];
+    try {
+      appts = await fetchTurnosProfesionalPorFecha(profIdNum, fechaYMD);
+    } catch (e) {
+      // si falla la validación, no bloqueamos (dejamos que backend decida)
+      if (DEBUG_AVAIL) console.warn("[AVAIL] no se pudo validar", e);
+      return null;
+    }
+
+    if (DEBUG_AVAIL) {
+      console.log("[AVAIL] check", {
+        profesionalId: profIdNum,
+        fechaYMD,
+        myStart,
+        myEnd,
+        appts,
+      });
+    }
+
+    for (const a of appts) {
+      // ignoramos cancelados o inactivos
+      if (a?.active === false) continue;
+
+      const { start, end } = getApptStartEndMinutes(a);
+      if (!overlaps(myStart, myEnd, start, end)) continue;
+
+      const patient = a.patient || "—";
+      const therapy = a.treatment || "—";
+      const aIni = a?.raw?.horaIni || a?.raw?.hora_inicio || "";
+      const aFin = a?.raw?.horaFin || a?.raw?.hora_fin || "";
+
+      // mensaje amigable
+      return `${profName} ya tiene ocupado ese horario por el paciente ${patient} con ${therapy}${
+        aIni && aFin ? ` (${aIni}–${aFin})` : ""
+      }.`;
+    }
+
+    return null;
+  }
+
   async function submitTurno(e) {
     e.preventDefault();
     setErrorTur("");
     setLoadingTur(true);
 
     try {
-      const payload = {
-        ...(formTur.id ? { id: formTur.id } : {}),
+      const payloadBase = {
         idPaciente: Number(formTur.idPaciente),
         idProfecional: Number(formTur.idProfecional),
         idTratamiento: Number(formTur.tratamientoId || 1), // ✅ backend real
@@ -277,8 +479,75 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
         obs: formTur.obs || "",
       };
 
-      if (formTur.id) await modificarTurno(payload);
-      else await crearTurno(payload);
+      if (formTur.id) {
+        // ✅ edición: 1 solo
+        const payload = { ...payloadBase, id: formTur.id };
+        await modificarTurno(payload);
+      } else {
+        // ✅ alta:
+        const isEjerciciosAdaptados = Number(formTur.tratamientoId) === 3;
+
+        // ✅ Si NO es ejercicios adaptados, validamos ocupación antes de crear
+        // (porque backend no deja más de uno por horario)
+        if (!isEjerciciosAdaptados) {
+          // OJO: si terapia manual tiene repeatCount > 1, validamos cada fecha a crear
+          const isTerapiaManual = Number(formTur.tratamientoId) === 1;
+          const repeatCount = isTerapiaManual
+            ? Math.min(4, Math.max(1, Number(formTur.repeatCount || 1)))
+            : 1;
+
+          const baseDate =
+            parseYMDToLocal(formTur.fecha) || new Date(formTur.fecha);
+
+          for (let i = 0; i < repeatCount; i++) {
+            const d = addDaysLocal(baseDate, i * 7);
+            const fecha = fmtLocal(d);
+
+            const msg = await validarDisponibilidadProfesional({
+              profesionalId: formTur.idProfecional,
+              fechaYMD: fecha,
+              horaIni: formTur.horaIni,
+              horaFin: formTur.horaFin,
+            });
+
+            if (msg) {
+              // frenamos todo (evita creaciones parciales)
+              setErrorTur(msg);
+              setLoadingTur(false);
+              return;
+            }
+          }
+        }
+
+        // ✅ creación real (si ejercicios adaptados, pasa directo)
+        const isTerapiaManual = Number(formTur.tratamientoId) === 1;
+        const repeatCount =
+          isTerapiaManual && !formTur.id
+            ? Math.min(4, Math.max(1, Number(formTur.repeatCount || 1)))
+            : 1;
+
+        const baseDate =
+          parseYMDToLocal(formTur.fecha) || new Date(formTur.fecha);
+
+        if (DEBUG_REPEAT) {
+          console.log("[ABMPanel] crear turno(s)", {
+            repeatCount,
+            fechaBase: formTur.fecha,
+            payloadBase,
+          });
+        }
+
+        for (let i = 0; i < repeatCount; i++) {
+          const d = addDaysLocal(baseDate, i * 7);
+          const fecha = fmtLocal(d);
+          const payload = { ...payloadBase, fecha };
+
+          if (DEBUG_REPEAT)
+            console.log("[ABMPanel] crearTurno", { i, fecha, payload });
+
+          await crearTurno(payload);
+        }
+      }
 
       setFormTur(emptyTurnoForm());
       onDataChanged && onDataChanged();
@@ -321,19 +590,71 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
           className={tab === "turnos" ? "active" : ""}
           onClick={() => setTab("turnos")}
         >
-          <span className="material-symbols-rounded">calendar_month</span> Turnos
+          <span className="material-symbols-rounded">calendar_month</span>{" "}
+          Turnos
         </button>
       </div>
 
       {/* Scroll real: SOLO el contenido */}
       <div className="abm-scroll">
         {tab === "pacientes" && (
-          <form className="form" onSubmit={submitPaciente} style={{ marginTop: 10 }}>
+          <form
+            className="form"
+            onSubmit={submitPaciente}
+            style={{ marginTop: 10 }}
+          >
+            {/* selector de modo */}
+            <div className="inline" style={{ gap: 10 }}>
+              <button
+                type="button"
+                className={
+                  pacMode === "nuevo" ? "btn-ghost active" : "btn-ghost"
+                }
+                onClick={() => setPacMode("nuevo")}
+                disabled={loadingPac}
+                title="Nuevo paciente"
+              >
+                Nuevo
+              </button>
+              <button
+                type="button"
+                className={
+                  pacMode === "modificar" ? "btn-ghost active" : "btn-ghost"
+                }
+                onClick={() => setPacMode("modificar")}
+                disabled={loadingPac}
+                title="Modificar paciente existente"
+              >
+                Modificar
+              </button>
+            </div>
+
+            {pacMode === "modificar" && (
+              <label>
+                Paciente
+                <select
+                  value={pacEditId || ""}
+                  onChange={(e) => setPacEditId(e.target.value)}
+                  disabled={loadingPac}
+                  required
+                >
+                  <option value="">-- Seleccionar paciente --</option>
+                  {pacientesOptions.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <label>
               Nombre
               <input
                 value={formPac.nombre}
-                onChange={(e) => setFormPac((s) => ({ ...s, nombre: e.target.value }))}
+                onChange={(e) =>
+                  setFormPac((s) => ({ ...s, nombre: e.target.value }))
+                }
                 required
               />
             </label>
@@ -344,7 +665,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                 <input
                   inputMode="numeric"
                   value={formPac.dni}
-                  onChange={(e) => setFormPac((s) => ({ ...s, dni: e.target.value }))}
+                  onChange={(e) =>
+                    setFormPac((s) => ({ ...s, dni: e.target.value }))
+                  }
                 />
               </label>
               <label>
@@ -352,7 +675,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                 <input
                   inputMode="tel"
                   value={formPac.celular}
-                  onChange={(e) => setFormPac((s) => ({ ...s, celular: e.target.value }))}
+                  onChange={(e) =>
+                    setFormPac((s) => ({ ...s, celular: e.target.value }))
+                  }
                 />
               </label>
             </div>
@@ -362,7 +687,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
               <input
                 type="email"
                 value={formPac.mail}
-                onChange={(e) => setFormPac((s) => ({ ...s, mail: e.target.value }))}
+                onChange={(e) =>
+                  setFormPac((s) => ({ ...s, mail: e.target.value }))
+                }
               />
             </label>
 
@@ -373,7 +700,10 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                   type="date"
                   value={formPac.fechaNacimiento}
                   onChange={(e) =>
-                    setFormPac((s) => ({ ...s, fechaNacimiento: e.target.value }))
+                    setFormPac((s) => ({
+                      ...s,
+                      fechaNacimiento: e.target.value,
+                    }))
                   }
                 />
               </label>
@@ -385,7 +715,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                   onChange={(e) =>
                     setFormPac((s) => ({
                       ...s,
-                      idObraSocial: e.target.value ? Number(e.target.value) : "",
+                      idObraSocial: e.target.value
+                        ? Number(e.target.value)
+                        : "",
                     }))
                   }
                 >
@@ -403,7 +735,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
               Dirección
               <input
                 value={formPac.direccion}
-                onChange={(e) => setFormPac((s) => ({ ...s, direccion: e.target.value }))}
+                onChange={(e) =>
+                  setFormPac((s) => ({ ...s, direccion: e.target.value }))
+                }
               />
             </label>
 
@@ -412,7 +746,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                 Usuario
                 <input
                   value={formPac.usuario}
-                  onChange={(e) => setFormPac((s) => ({ ...s, usuario: e.target.value }))}
+                  onChange={(e) =>
+                    setFormPac((s) => ({ ...s, usuario: e.target.value }))
+                  }
                 />
               </label>
               <label>
@@ -420,7 +756,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                 <input
                   type="password"
                   value={formPac.clave}
-                  onChange={(e) => setFormPac((s) => ({ ...s, clave: e.target.value }))}
+                  onChange={(e) =>
+                    setFormPac((s) => ({ ...s, clave: e.target.value }))
+                  }
                 />
               </label>
             </div>
@@ -434,25 +772,32 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
 
             <div className="inline" style={{ gap: 10 }}>
               <button className="primary" disabled={loadingPac}>
-                {formPac.id ? "Guardar cambios" : "Crear paciente"}
+                {pacMode === "modificar" ? "Guardar" : "Crear"}
               </button>
 
-              {formPac.id && (
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  onClick={() => setFormPac(mapPacienteABMForm({}))}
-                  disabled={loadingPac}
-                >
-                  Cancelar
-                </button>
-              )}
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setErrorPac("");
+                  setPacEditId("");
+                  setFormPac(mapPacienteABMForm({}));
+                }}
+                disabled={loadingPac}
+                title="Limpiar"
+              >
+                Cancelar
+              </button>
             </div>
           </form>
         )}
 
         {tab === "turnos" && (
-          <form className="form" onSubmit={submitTurno} style={{ marginTop: 10 }}>
+          <form
+            className="form"
+            onSubmit={submitTurno}
+            style={{ marginTop: 10 }}
+          >
             <div className="inline" style={{ gap: 10 }}>
               <span className="muted">Semana de {fmtLocal(anchor)}</span>
               <div className="row-actions">
@@ -460,7 +805,10 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                   type="button"
                   className="btn-mini"
                   onClick={() =>
-                    setAnchor((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7))
+                    setAnchor(
+                      (d) =>
+                        new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7)
+                    )
                   }
                   title="Semana anterior"
                 >
@@ -470,11 +818,16 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                   type="button"
                   className="btn-mini"
                   onClick={() =>
-                    setAnchor((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7))
+                    setAnchor(
+                      (d) =>
+                        new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7)
+                    )
                   }
                   title="Semana siguiente"
                 >
-                  <span className="material-symbols-rounded">chevron_right</span>
+                  <span className="material-symbols-rounded">
+                    chevron_right
+                  </span>
                 </button>
               </div>
             </div>
@@ -508,7 +861,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                   onChange={(e) =>
                     setFormTur((s) => ({
                       ...s,
-                      idProfecional: e.target.value ? Number(e.target.value) : "",
+                      idProfecional: e.target.value
+                        ? Number(e.target.value)
+                        : "",
                     }))
                   }
                   required
@@ -530,7 +885,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                 <input
                   type="date"
                   value={formTur.fecha}
-                  onChange={(e) => setFormTur((s) => ({ ...s, fecha: e.target.value }))}
+                  onChange={(e) =>
+                    setFormTur((s) => ({ ...s, fecha: e.target.value }))
+                  }
                   required
                 />
               </label>
@@ -540,7 +897,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                 <input
                   type="time"
                   value={formTur.horaIni}
-                  onChange={(e) => setFormTur((s) => ({ ...s, horaIni: e.target.value }))}
+                  onChange={(e) =>
+                    setFormTur((s) => ({ ...s, horaIni: e.target.value }))
+                  }
                   required
                 />
               </label>
@@ -550,7 +909,9 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                 <input
                   type="time"
                   value={formTur.horaFin}
-                  onChange={(e) => setFormTur((s) => ({ ...s, horaFin: e.target.value }))}
+                  onChange={(e) =>
+                    setFormTur((s) => ({ ...s, horaFin: e.target.value }))
+                  }
                   required
                 />
               </label>
@@ -574,18 +935,61 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
               </select>
             </label>
 
+            {/* x1..x4: solo Terapia Manual */}
+            {Number(formTur.tratamientoId) === 1 && (
+              <label>
+                Repetir (semanal)
+                <select
+                  value={formTur.id ? 1 : formTur.repeatCount || 1}
+                  onChange={(e) =>
+                    setFormTur((s) => ({
+                      ...s,
+                      repeatCount: Number(e.target.value),
+                    }))
+                  }
+                  disabled={!!formTur.id}
+                  title={
+                    formTur.id
+                      ? "En edición no se repite"
+                      : "xN crea repeticiones semanales"
+                  }
+                >
+                  {[1, 2, 3, 4].map((n) => (
+                    <option key={n} value={n}>
+                      x{n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <label>
               Observaciones
               <input
                 value={formTur.obs}
-                onChange={(e) => setFormTur((s) => ({ ...s, obs: e.target.value }))}
+                onChange={(e) =>
+                  setFormTur((s) => ({ ...s, obs: e.target.value }))
+                }
               />
             </label>
 
             {errorTur && (
-              <div className="error">
+              <div
+                role="alert"
+                style={{
+                  marginTop: 10,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,0,0,.25)",
+                  background: "rgba(255,0,0,.08)",
+                  fontWeight: 800,
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                }}
+              >
                 <span className="material-symbols-rounded">error</span>
-                {errorTur}
+                <span>{errorTur}</span>
               </div>
             )}
 
@@ -612,7 +1016,8 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
                     disabled={loadingTur}
                     title="Eliminar turno"
                   >
-                    <span className="material-symbols-rounded">delete</span> Borrar turno
+                    <span className="material-symbols-rounded">delete</span>{" "}
+                    Borrar turno
                   </button>
                 </>
               )}
