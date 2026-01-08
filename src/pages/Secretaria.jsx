@@ -13,7 +13,7 @@ import { listarProfesionales } from "../api/abmBackend.js";
 import { getBackendToken } from "../api/http.js";
 
 // ✅ La grilla debe arrancar desde las 7:00
-const HOURS = Array.from({ length: 11 }, (_, i) => 7 + i); // 7..17
+const HOURS = [...Array.from({ length: 6 }, (_, i) => 7 + i), ...Array.from({ length: 6 }, (_, i) => 14 + i)]; // 7..12 y 14..19
 
 const startOfWeek = (d) => {
   const x = d instanceof Date ? new Date(d) : new Date(d);

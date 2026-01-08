@@ -2,13 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getBackendToken } from "../api/http.js";
 import { listarPacientes } from "../api/abmBackend.js";
-import { crearMovimiento } from "../api/movimientosBackend.js";
-
-const TRATAMIENTOS = [
-  { id: 1, nombre: "Terapia Manual" },
-  { id: 2, nombre: "Kinesiología Convencional" },
-  { id: 3, nombre: "Ejercicios Adaptados" },
-];
+import { crearMovimiento, listarMovimientoTipos } from "../api/movimientosBackend.js";
 
 function buildObs({ sesion, obs }) {
   const cleanObs = String(obs || "").trim();
@@ -37,6 +31,8 @@ export default function PagosPanel() {
   };
 
   const [pacientes, setPacientes] = useState([]);
+  const [movimientoTipos, setMovimientoTipos] = useState([]);
+
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
@@ -44,7 +40,7 @@ export default function PagosPanel() {
   const [form, setForm] = useState({
     pacienteId: "",
     fecha: new Date().toISOString().slice(0, 10),
-    tratamientoId: "",
+    tratamientoId: "", // (mantengo nombre para no tocar markup)
     sesion: "",
     observacion: "",
     debe: "",
@@ -58,8 +54,16 @@ export default function PagosPanel() {
     if (!useBackend) return;
     (async () => {
       try {
-        const list = await listarPacientes().catch(() => []);
-        setPacientes(Array.isArray(list) ? list : []);
+        const [listPac, listTipos] = await Promise.all([
+          listarPacientes().catch(() => []),
+          listarMovimientoTipos().catch(() => []),
+        ]);
+
+        setPacientes(Array.isArray(listPac) ? listPac : []);
+
+        const tipos = Array.isArray(listTipos) ? listTipos : [];
+        // ✅ filtrar bajas (no mostrar)
+        setMovimientoTipos(tipos.filter((t) => !t?.baja));
       } catch (e) {
         console.error(e);
       }
@@ -112,6 +116,7 @@ export default function PagosPanel() {
       haber: haberFilled ? haber : 0,
       baja: false,
       observaciones,
+      // ✅ backend usa id_cliente
       id_cliente: Number(form.pacienteId),
       saldo: (debeFilled ? debe : 0) - (haberFilled ? haber : 0),
     };
@@ -170,8 +175,7 @@ export default function PagosPanel() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns:
-                    "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.6fr)",
+                  gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.6fr)",
                   gap: 10,
                 }}
               >
@@ -206,14 +210,12 @@ export default function PagosPanel() {
                   <select
                     style={fieldStyle}
                     value={form.tratamientoId}
-                    onChange={(e) =>
-                      setForm((s) => ({ ...s, tratamientoId: e.target.value }))
-                    }
+                    onChange={(e) => setForm((s) => ({ ...s, tratamientoId: e.target.value }))}
                   >
                     <option value="">-- Seleccionar --</option>
-                    {TRATAMIENTOS.map((t) => (
+                    {movimientoTipos.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.nombre}
+                        {t.tipo}
                       </option>
                     ))}
                   </select>
@@ -246,13 +248,16 @@ export default function PagosPanel() {
                   <input
                     style={fieldStyle}
                     type="text"
-                    placeholder="Ej: 1500 o 1.500,00"
                     value={form.debe}
                     disabled={haberFilled}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setForm((s) => ({ ...s, debe: v, haber: v.trim() ? "" : s.haber }));
-                    }}
+                    onChange={(e) =>
+                      setForm((s) => ({
+                        ...s,
+                        debe: e.target.value,
+                        haber: e.target.value.trim() ? "" : s.haber,
+                      }))
+                    }
+                    placeholder="Ej: 1500"
                   />
                 </label>
 
@@ -261,13 +266,16 @@ export default function PagosPanel() {
                   <input
                     style={fieldStyle}
                     type="text"
-                    placeholder="Ej: 1500 o 1.500,00"
                     value={form.haber}
                     disabled={debeFilled}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setForm((s) => ({ ...s, haber: v, debe: v.trim() ? "" : s.debe }));
-                    }}
+                    onChange={(e) =>
+                      setForm((s) => ({
+                        ...s,
+                        haber: e.target.value,
+                        debe: e.target.value.trim() ? "" : s.debe,
+                      }))
+                    }
+                    placeholder="Ej: 1500"
                   />
                 </label>
               </div>
@@ -276,25 +284,15 @@ export default function PagosPanel() {
                 Observación
                 <textarea
                   style={fieldStyle}
-                  rows={2}
+                  rows={3}
                   value={form.observacion}
-                  onChange={(e) =>
-                    setForm((s) => ({ ...s, observacion: e.target.value }))
-                  }
+                  onChange={(e) => setForm((s) => ({ ...s, observacion: e.target.value }))}
                 />
               </label>
 
-              <div
-                className="inline"
-                style={{
-                  justifyContent: "flex-end",
-                  gap: 10,
-                  marginTop: 10,
-                  flexWrap: "wrap",
-                }}
-              >
+              <div className="inline" style={{ justifyContent: "space-between", marginTop: 10 }}>
                 <button type="button" className="btn-ghost" onClick={abrirABM}>
-                  ABM de pagos ↗
+                  Abrir ABM
                 </button>
 
                 <button
@@ -306,14 +304,6 @@ export default function PagosPanel() {
                 </button>
               </div>
             </form>
-
-            <style>{`
-              @media (max-width: 520px) {
-                .pagos-card form > div[style*="gridTemplateColumns"] {
-                  grid-template-columns: 1fr !important;
-                }
-              }
-            `}</style>
           </>
         )}
       </div>

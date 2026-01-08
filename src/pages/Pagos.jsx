@@ -9,14 +9,9 @@ import {
   emptyMovimientoForm,
   mapMovimientoToForm,
   searchMovimientos,
+  listarMovimientoTipos,
 } from "../api/movimientosBackend.js";
 
-// Tipos fijos (por ahora). Después si querés los leemos del backend.
-const TRATAMIENTOS = [
-  { id: 1, nombre: "Terapia Manual" },
-  { id: 2, nombre: "Kinesiología Convencional" },
-  { id: 3, nombre: "Ejercicios Adaptados" },
-];
 
 function buildObs({ sesion, obs }) {
   const cleanObs = String(obs || "").trim();
@@ -38,12 +33,12 @@ function normalizeMoney(raw) {
 
 function toCsv(rows) {
   const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
-  const headers = ["id", "fecha", "paciente", "tipo", "debe", "haber", "observaciones"];
+  const headers = ["id", "fecha", "paciente", "tipo", "debe", "haber", "saldo", "observaciones"];
   const lines = [headers.map(esc).join(",")];
 
   for (const r of rows) {
     lines.push(
-      [r.id, r.fecha, r.pacienteNombre, r.tipoNombre, r.debe, r.haber, r.observaciones]
+      [r.id, r.fecha, r.pacienteNombre, r.tipoNombre, r.debe, r.haber, r.saldo, r.observaciones]
         .map(esc)
         .join(",")
     );
@@ -56,18 +51,21 @@ export default function Pagos() {
 
   // Datos base
   const [pacientes, setPacientes] = useState([]);
+  const [movimientoTipos, setMovimientoTipos] = useState([]);
 
   // Filtros
   const [pacienteId, setPacienteId] = useState("");
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
-  const [tiposSeleccionados, setTiposSeleccionados] = useState(TRATAMIENTOS.map((t) => t.id));
+  // ✅ vacío = sin filtro de tipo
+  const [tiposSeleccionados, setTiposSeleccionados] = useState([]);
   const [openTipos, setOpenTipos] = useState(false);
 
   // Resultados
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [movimientos, setMovimientos] = useState([]);
+  const [searched, setSearched] = useState(false);
 
   // Selección / Editor
   const [selectedId, setSelectedId] = useState(null);
@@ -84,46 +82,57 @@ export default function Pagos() {
     [pacientes]
   );
   const tipoPorId = useMemo(
-    () => Object.fromEntries(TRATAMIENTOS.map((t) => [String(t.id), t.nombre])),
-    []
+    () => Object.fromEntries(movimientoTipos.map((t) => [String(t.id), t.tipo])),
+    [movimientoTipos]
   );
 
   useEffect(() => {
     if (!useBackend) return;
     (async () => {
       try {
-        const list = await listarPacientes();
-        setPacientes(Array.isArray(list) ? list : []);
+        const [listPac, listTipos] = await Promise.all([
+          listarPacientes().catch(() => []),
+          listarMovimientoTipos().catch(() => []),
+        ]);
+
+        setPacientes(Array.isArray(listPac) ? listPac : []);
+
+        const tipos = Array.isArray(listTipos) ? listTipos : [];
+        // ✅ filtrar bajas (no mostrar)
+        setMovimientoTipos(tipos.filter((t) => !t?.baja));
       } catch (e) {
         console.error(e);
       }
     })();
   }, [useBackend]);
 
+  const tiposIds = useMemo(() => movimientoTipos.map((t) => t.id), [movimientoTipos]);
+
   // Buscar (no trae todo solo: se ejecuta con botón)
   async function buscar() {
     setErr("");
+    setSearched(true);
 
-    // ✅ En el backend, "0" significa "sin filtro por paciente".
-    // La API /API/searchMovimientos espera SIEMPRE 4 params.
-    const idCliente = pacienteId ? Number(pacienteId) : 0;
-    const fechaDesde = desde || "1900-01-01";
-    const fechaHasta = hasta || "2999-12-31";
-    const tipos = (tiposSeleccionados && tiposSeleccionados.length)
-      ? tiposSeleccionados
-      : [0];
+    const idPaciente = pacienteId ? Number(pacienteId) : undefined;
+    const fechaDesde = desde || undefined;
+    const fechaHasta = hasta || undefined;
+    // vacío => sin filtro de tipo
+    const tipos = tiposSeleccionados && tiposSeleccionados.length ? tiposSeleccionados : [];
 
     setLoading(true);
     try {
-      // ✅ El backend suele esperar un solo id_movimiento_tipo.
-      // Para mantener el multiselect del UI, hacemos 1 request por tipo y unimos.
+      // ✅ Si hay 0 tipos seleccionados: 1 request (sin filtro por tipo)
+      // ✅ Si hay 1 tipo: 1 request
+      // ✅ Si hay N tipos (UI multi): N requests y unimos
       const fetched = [];
-      for (const t of tipos) {
+      const tiposToFetch = tipos.length ? tipos : [null];
+
+      for (const t of tiposToFetch) {
         const data = await searchMovimientos({
-          fecha_desde: fechaDesde,
-          fecha_hasta: fechaHasta,
-          id_cliente: idCliente,
-          id_movimiento_tipo: t,
+          ...(fechaDesde ? { fecha_desde: fechaDesde } : {}),
+          ...(fechaHasta ? { fecha_hasta: fechaHasta } : {}),
+          ...(idPaciente !== undefined ? { id_cliente: idPaciente } : {}),
+          ...(t !== null ? { id_movimiento_tipo: t } : {}),
         });
 
         const list = Array.isArray(data)
@@ -143,7 +152,8 @@ export default function Pagos() {
         if (!byId.has(k)) byId.set(k, m);
       }
 
-      const merged = Array.from(byId.values());
+      // ✅ no mostrar movimientos dados de baja
+      const merged = Array.from(byId.values()).filter((m) => !m?.baja);
       // orden por fecha desc (si existe)
       merged.sort((a, b) => {
         const ta = new Date(a?.fecha || 0).getTime();
@@ -151,7 +161,7 @@ export default function Pagos() {
         return tb - ta;
       });
 
-      setMovimientos(merged);
+      setMovimientos(merged.filter(m => idPaciente === undefined || String(m?.id_cliente ?? m?.id_paciente ?? "") === String(idPaciente)).filter(m => !tipos.length || tipos.includes(m?.id_movimiento_tipo)));
       setSelectedId(null);
     } catch (e) {
       setErr(e.message || "No se pudo buscar movimientos.");
@@ -179,23 +189,18 @@ export default function Pagos() {
   async function calcularSaldoTotal() {
     setSaldoTotal(null);
 
-    // ✅ Permite calcular total con y sin paciente (0 = todos)
-    const idCliente = pacienteId ? Number(pacienteId) : 0;
-    const fechaDesde = "1900-01-01";
-    const fechaHasta = "2999-12-31";
-    const tipos = (tiposSeleccionados && tiposSeleccionados.length)
-      ? tiposSeleccionados
-      : [0];
+    const idPaciente = pacienteId ? Number(pacienteId) : undefined;
+    const tipos = tiposSeleccionados && tiposSeleccionados.length ? tiposSeleccionados : [];
 
     setSaldoTotalLoading(true);
     try {
       const fetched = [];
-      for (const t of tipos) {
+      const tiposToFetch = tipos.length ? tipos : [null];
+
+      for (const t of tiposToFetch) {
         const data = await searchMovimientos({
-          fecha_desde: fechaDesde,
-          fecha_hasta: fechaHasta,
-          id_cliente: idCliente,
-          id_movimiento_tipo: t,
+          ...(idPaciente !== undefined ? { id_cliente: idPaciente } : {}),
+          ...(t !== null ? { id_movimiento_tipo: t } : {}),
         });
 
         const list = Array.isArray(data)
@@ -215,7 +220,7 @@ export default function Pagos() {
         if (!byId.has(k)) byId.set(k, m);
       }
 
-      const list = Array.from(byId.values());
+      const list = Array.from(byId.values()).filter((m) => !m?.baja).filter(m => idPaciente === undefined || String(m?.id_cliente ?? m?.id_paciente ?? "") === String(idPaciente)).filter(m => !tipos.length || tipos.includes(m?.id_movimiento_tipo));
 
       let d = 0,
         h = 0;
@@ -235,7 +240,11 @@ export default function Pagos() {
   const rows = useMemo(() => {
     return movimientos.map((m) => ({
       ...m,
-      pacienteNombre: pacPorId[String(m.id_cliente)] || m.paciente_nombre || m.cliente_nombre || m.id_cliente,
+      pacienteNombre:
+        pacPorId[String(m?.id_cliente ?? m?.id_paciente)] ||
+        m?.paciente_nombre ||
+        m?.cliente_nombre ||
+        "",
       tipoNombre: tipoPorId[String(m.id_movimiento_tipo)] || m.id_movimiento_tipo,
     }));
   }, [movimientos, pacPorId, tipoPorId]);
@@ -315,15 +324,18 @@ export default function Pagos() {
         </head>
         <body>
           <h2>Movimientos</h2>
-          <div class="muted">Paciente: ${pacPorId[String(pacienteId)] || pacienteId}</div>
+          <div class="muted">${pacienteId ? `Paciente: ${pacPorId[String(pacienteId)] || pacienteId}` : "Todos los pacientes"}</div>
 
           <table>
             <thead>
               <tr>
+                <th>ID movimiento</th>
                 <th>Fecha</th>
-                <th>Tipo</th>
+                <th>Paciente</th>
+                <th>Tipo de movimiento</th>
                 <th>Debe</th>
                 <th>Haber</th>
+                <th>Saldo</th>
                 <th>Observaciones</th>
               </tr>
             </thead>
@@ -332,10 +344,13 @@ export default function Pagos() {
                 .map(
                   (r) => `
                 <tr>
+                  <td>${r.id ?? ""}</td>
                   <td>${r.fecha || ""}</td>
+                  <td>${r.pacienteNombre || ""}</td>
                   <td>${r.tipoNombre}</td>
                   <td>${r.debe ?? ""}</td>
                   <td>${r.haber ?? ""}</td>
+                  <td>${r.saldo ?? ""}</td>
                   <td>${r.observaciones ?? ""}</td>
                 </tr>
               `
@@ -396,6 +411,7 @@ export default function Pagos() {
 
     const payload = {
       ...form,
+      // ✅ backend usa id_cliente
       id_cliente: Number(form.id_cliente),
       id_movimiento_tipo: Number(form.id_movimiento_tipo),
       debe: dFilled ? debeN : 0,
@@ -494,40 +510,43 @@ export default function Pagos() {
             <div className="inline" style={{ justifyContent: "space-between", alignItems: "center" }}>
               <h2 style={{ margin: 0 }}>Movimientos</h2>
               <div className="muted" style={{ fontSize: 13 }}>
-                {pacienteId ? `Paciente: ${pacPorId[String(pacienteId)] || pacienteId}` : "Seleccioná paciente"}
+                {pacienteId
+                  ? `Paciente: ${pacPorId[String(pacienteId)] || pacienteId}`
+                  : "Todos los pacientes"}
               </div>
             </div>
 
             <table className="tabla-movimientos" style={{ marginTop: 10 }}>
               <thead>
                 <tr>
-                  <th>ID</th>
+                  <th>ID movimiento</th>
                   <th>Fecha</th>
                   <th>Paciente</th>
-                  <th>Tipo</th>
+                  <th>Tipo de movimiento</th>
                   <th>Debe</th>
                   <th>Haber</th>
-                  <th>Obs</th>
+                  <th>Saldo</th>
+                  <th>Observaciones</th>
                 </tr>
               </thead>
               <tbody>
-                {!pacienteId && (
+                {!searched && (
                   <tr>
-                    <td colSpan={6} className="muted">
-                      Seleccioná un paciente y tocá Buscar.
+                    <td colSpan={8} className="muted">
+                      Usá los filtros (opcional) y tocá Buscar.
                     </td>
                   </tr>
                 )}
 
-                {pacienteId && !loading && movimientos.length === 0 && (
+                {searched && !loading && rows.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="muted">
+                    <td colSpan={8} className="muted">
                       No hay movimientos para los filtros actuales.
                     </td>
                   </tr>
                 )}
 
-                {movimientos.map((m) => {
+                {rows.map((m) => {
                   const selected = m.id === selectedId;
                   return (
                     <tr
@@ -540,9 +559,11 @@ export default function Pagos() {
                     >
                       <td>{m.id}</td>
                       <td>{m.fecha || ""}</td>
-                      <td>{tipoPorId[String(m.id_movimiento_tipo)] || m.id_movimiento_tipo}</td>
+                      <td>{m.pacienteNombre || ""}</td>
+                      <td>{m.tipoNombre}</td>
                       <td>{m.debe ?? ""}</td>
                       <td>{m.haber ?? ""}</td>
+                      <td>{m.saldo ?? ""}</td>
                       <td
                         style={{
                           maxWidth: 360,
@@ -590,7 +611,7 @@ export default function Pagos() {
                 type="button"
                 className="btn-ghost"
                 onClick={imprimirTablaMovimientos}
-                disabled={!pacienteId || rows.length === 0}
+                disabled={rows.length === 0}
               >
                 Imprimir tabla
               </button>
@@ -618,7 +639,7 @@ export default function Pagos() {
                 className="btn-ghost"
                 type="button"
                 onClick={calcularSaldoTotal}
-                disabled={!pacienteId || saldoTotalLoading}
+                disabled={saldoTotalLoading}
                 style={{ marginTop: 6 }}
               >
                 {saldoTotalLoading ? "Calculando..." : "Calcular saldo total"}
@@ -631,7 +652,7 @@ export default function Pagos() {
                     <strong>${saldoTotal.saldo.toLocaleString("es-AR")}</strong>
                   </div>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    (Sin rango de fechas, mismo paciente/tipos)
+                    (Sin rango de fechas, ${pacienteId ? "mismo paciente" : "todos los pacientes"}/tipos)
                   </div>
                 </>
               )}
@@ -657,7 +678,10 @@ export default function Pagos() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 180px", gap: 10 }}>
                 <label style={{ margin: 0 }}>
                   Paciente
-                  <select value={form.id_cliente} onChange={(e) => setForm((s) => ({ ...s, id_cliente: e.target.value }))}>
+                  <select
+                    value={form.id_cliente}
+                    onChange={(e) => setForm((s) => ({ ...s, id_cliente: e.target.value }))}
+                  >
                     <option value="">-- Seleccionar --</option>
                     {pacientes.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -681,9 +705,9 @@ export default function Pagos() {
                     onChange={(e) => setForm((s) => ({ ...s, id_movimiento_tipo: e.target.value }))}
                   >
                     <option value="">-- Seleccionar --</option>
-                    {TRATAMIENTOS.map((t) => (
+                    {movimientoTipos.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.nombre}
+                        {t.tipo}
                       </option>
                     ))}
                   </select>
@@ -764,7 +788,7 @@ export default function Pagos() {
         <button
           type="button"
           className="btn-ghost"
-          onClick={() => setTiposSeleccionados(TRATAMIENTOS.map((t) => t.id))}
+          onClick={() => setTiposSeleccionados(tiposIds)}
         >
           Todos
         </button>
@@ -779,7 +803,7 @@ export default function Pagos() {
       </div>
 
       <div className="pagos-tipos-list">
-        {TRATAMIENTOS.map((t) => {
+        {movimientoTipos.map((t) => {
           const checked = tiposSeleccionados.includes(t.id);
           return (
             <button
@@ -799,7 +823,7 @@ export default function Pagos() {
                 checked={checked}
                 readOnly
               />
-              <span className="pagos-tipos-label">{t.nombre}</span>
+              <span className="pagos-tipos-label">{t.tipo}</span>
             </button>
           );
         })}
