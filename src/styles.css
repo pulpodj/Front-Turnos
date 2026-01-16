@@ -1356,7 +1356,7 @@ body.is-resizing{
   width: 100%;
   text-align: left;
   border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.04);
+  background: rgba(110, 233, 255, 0.801);
   color: inherit;
   border-radius: 12px;
   padding: 10px;
@@ -1365,8 +1365,8 @@ body.is-resizing{
 }
 
 .notif-item.is-unread{
-  background: rgba(82, 144, 170, 0.18);
-  border-color: rgba(82, 144, 170, 0.35);
+  background: rgb(24, 43, 223);
+  border-color: rgb(255, 255, 255);
 }
 
 .notif-top{
@@ -1767,14 +1767,15 @@ body.is-resizing{
 
 .btn-mini{
   border:1px solid #e6eefb;
+  margin: 5px 0px;
   background:#fff;
   border-radius:10px;
   padding:6px 10px;
   cursor:pointer;
 }
-.btn-mini:hover{ background:#f8fbff; }
+.btn-mini:hover{ background:#a2a2a3; }
 .btn-mini:disabled{ opacity:.55; cursor:not-allowed; }
-.btn-mini.danger{ border-color:#ffd5d5; background:#fff1f1; }
+.btn-mini.danger{ border-color:#fcfcfc; background:#ff4959fd; }
 
 .notif-error{
   padding:10px 12px;
@@ -1791,14 +1792,14 @@ body.is-resizing{
 
 .notif-item{
   border:1px solid #e8eef9;
-  background:#fff;
+  background:#2684fe;
   border-radius:12px;
   padding:10px;
   margin-bottom:10px;
 }
 
 .notif-item.is-unread{
-  background: rgba(82,144,170,.12);
+  background: #2684fe;
   border-color: rgba(82,144,170,.30);
 }
 

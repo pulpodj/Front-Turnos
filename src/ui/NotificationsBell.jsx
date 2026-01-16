@@ -14,18 +14,56 @@ function pickField(n, ...keys) {
   return "";
 }
 
+// El backend suele traer los datos del solicitante embebidos en `detalle`.
+// Ej: "Nuevo contacto desde la landing: | Nombre: Santiago Aimar | Email: ... | Teléfono: ..."
+function parseContactFromDetalle(detalleRaw) {
+  const detalle = String(detalleRaw ?? "");
+  if (!detalle) return { nombre: "", apellido: "", email: "", telefono: "" };
+
+  const get = (re) => {
+    const m = detalle.match(re);
+    return m && m[1] ? String(m[1]).trim() : "";
+  };
+
+  const nombreFull =
+    get(/\bNombre\s*:\s*([^|\n\r]+)/i) || get(/\bPaciente\s*:\s*([^|\n\r]+)/i);
+  const email =
+    get(/\bEmail\s*:\s*([^|\n\r]+)/i) || get(/\bMail\s*:\s*([^|\n\r]+)/i);
+  const telefono =
+    get(/\bTel[eé]fono\s*:\s*([^|\n\r]+)/i) ||
+    get(/\bTelefono\s*:\s*([^|\n\r]+)/i) ||
+    get(/\bTel\s*:\s*([^|\n\r]+)/i);
+
+  // Separación suave nombre/apellido (si viene "Nombre Apellido")
+  let nombre = nombreFull;
+  let apellido = "";
+  if (nombreFull) {
+    const parts = nombreFull.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      nombre = parts[0];
+      apellido = parts.slice(1).join(" ");
+    }
+  }
+
+  return { nombre, apellido, email, telefono };
+}
 function isRead(n) {
   const v =
     n?.leida ?? n?.leído ?? n?.leido ?? n?.read ?? n?.visto ?? n?.estado;
-  const s = String(v ?? "").toLowerCase().trim();
+  const s = String(v ?? "")
+    .toLowerCase()
+    .trim();
   if (v === true || v === 1) return true;
-  if (["true", "1", "leida", "leído", "leido", "visto", "read"].includes(s)) return true;
+  if (["true", "1", "leida", "leído", "leido", "visto", "read"].includes(s))
+    return true;
   return false;
 }
 
 function isBaja(n) {
   const v = n?.baja ?? n?.deleted ?? n?.is_deleted ?? n?.activo;
-  const s = String(v ?? "").toLowerCase().trim();
+  const s = String(v ?? "")
+    .toLowerCase()
+    .trim();
   if (v === true || v === 1) return true;
   if (["true", "1"].includes(s)) return true;
   if (v === false || v === 0) return true; // si viene activo=false
@@ -49,8 +87,14 @@ export default function NotificationsBell() {
       const clean = (Array.isArray(data) ? data : []).filter((n) => !isBaja(n));
       // orden: más nuevas arriba si hay fecha
       clean.sort((a, b) => {
-        const ta = new Date(pickField(a, "createdAt", "fecha", "created_at")).getTime() || 0;
-        const tb = new Date(pickField(b, "createdAt", "fecha", "created_at")).getTime() || 0;
+        const ta =
+          new Date(
+            pickField(a, "createdAt", "fecha", "created_at"),
+          ).getTime() || 0;
+        const tb =
+          new Date(
+            pickField(b, "createdAt", "fecha", "created_at"),
+          ).getTime() || 0;
         return tb - ta;
       });
       setList(clean);
@@ -91,7 +135,7 @@ export default function NotificationsBell() {
 
   const unreadCount = useMemo(
     () => list.reduce((acc, n) => acc + (isRead(n) ? 0 : 1), 0),
-    [list]
+    [list],
   );
 
   async function markAsRead(n) {
@@ -150,7 +194,12 @@ export default function NotificationsBell() {
           <div className="notif-head">
             <div className="notif-title">Notificaciones</div>
             <div className="notif-actions">
-              <button type="button" className="btn-mini" onClick={reload} disabled={loading}>
+              <button
+                type="button"
+                className="btn-mini"
+                onClick={reload}
+                disabled={loading}
+              >
                 {loading ? "…" : "Refrescar"}
               </button>
             </div>
@@ -165,11 +214,24 @@ export default function NotificationsBell() {
               </div>
             ) : (
               list.map((n) => {
-                const nombre = pickField(n, "Nombre", "nombre");
-                const apellido = pickField(n, "Apellido", "apellido");
-                const email = pickField(n, "Email", "email", "mail");
-                const telefono = pickField(n, "Telefono", "telefono", "tel", "celular");
-                const created = pickField(n, "createdAt", "fecha", "created_at");
+                const detalle = pickField(
+                  n,
+                  "detalle",
+                  "Detalle",
+                  "mensaje",
+                  "message",
+                );
+                const parsed = parseContactFromDetalle(detalle);
+
+                const nombre =
+                  pickField(n, "Nombre", "nombre") || parsed.nombre;
+                const apellido =
+                  pickField(n, "Apellido", "apellido") || parsed.apellido;
+                const email =
+                  pickField(n, "Email", "email", "mail") || parsed.email;
+                const telefono =
+                  pickField(n, "Telefono", "telefono", "tel", "celular") ||
+                  parsed.telefono;
 
                 const unread = !isRead(n);
 
@@ -181,9 +243,6 @@ export default function NotificationsBell() {
                     <div className="notif-top">
                       <div className="notif-name">
                         {nombre || "—"} {apellido || ""}
-                      </div>
-                      <div className="notif-date">
-                        {created ? new Date(created).toLocaleString() : ""}
                       </div>
                     </div>
 
@@ -197,17 +256,7 @@ export default function NotificationsBell() {
                       <span>{telefono || "—"}</span>
                     </div>
 
-                    <div className="notif-row">
-                      <button
-                        type="button"
-                        className="btn-mini"
-                        onClick={() => markAsRead(n)}
-                        disabled={!unread}
-                        title="Marcar como leída"
-                      >
-                        Leída
-                      </button>
-
+                    <div className="notif-actions">
                       <button
                         type="button"
                         className="btn-mini danger"
