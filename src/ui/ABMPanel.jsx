@@ -329,7 +329,10 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
   }, [selectedTurno]);
 
   const pacientesOptions = useMemo(
-    () => pacList.map((p) => ({ id: p.id, nombre: p.nombre })),
+    () =>
+      pacList
+        .map((p) => ({ id: p.id, nombre: p.nombre }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" })),
     [pacList]
   );
 
