@@ -59,7 +59,7 @@ export default function PagosPanel() {
           listarMovimientoTipos().catch(() => []),
         ]);
 
-        setPacientes(Array.isArray(listPac) ? listPac : []);
+        setPacientes(Array.isArray(listPac) ? [...listPac].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "")) : []);
 
         const tipos = Array.isArray(listTipos) ? listTipos : [];
         // ✅ filtrar bajas (no mostrar)
