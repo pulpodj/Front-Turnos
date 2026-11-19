@@ -1,11 +1,10 @@
 // src/pages/MedicoAgenda.jsx
 import { useEffect, useMemo, useState } from "react";
-import Header from "../ui/Header.jsx";
-import Footer from "../ui/Footer.jsx";
 import WeekCalendar from "../ui/WeekCalendar.jsx";
 import ScheduleGrid from "../ui/ScheduleGrid.jsx";
 import { readSession } from "../utils/jwt.js";
 import { fetchTurnosProfesionalSemana } from "../api/turnosBackend.js";
+import { Alert } from "../components/ui/Display.jsx";
 
 // ✅ La grilla debe arrancar desde las 7:00
 const HOURS = [...Array.from({ length: 6 }, (_, i) => 7 + i), ...Array.from({ length: 6 }, (_, i) => 14 + i)]; // 7..12 y 14..19
@@ -83,11 +82,6 @@ export default function MedicoAgenda() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart, profId]);
 
-  const logout = () => {
-    sessionStorage.removeItem("gt_backend_token");
-    window.location.href = "/login";
-  };
-
   const handleCalendarSelect = (d) => {
     const clean =
       d instanceof Date ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : d;
@@ -96,41 +90,30 @@ export default function MedicoAgenda() {
   };
 
   return (
-    <div className="page-wrap">
-      <Header onLogout={logout} enableHistorialButton={true} />
+    <div className="gt-page medico-layout">
+      <div className="medico-main">
+        <ScheduleGrid
+          weekDays={weekDays}
+          hours={HOURS}
+          items={items}
+          onSelectAppt={(appt) => setSelectedAppt(appt)}
+          selectedId={selectedAppt?.id}
+        />
+      </div>
 
-      <main className="agenda-container">
-        <div className="medico-layout">
-          <div className="medico-main">
-            <ScheduleGrid
-              weekDays={weekDays}
-              hours={HOURS}
-              items={items}
-              onSelectAppt={(appt) => setSelectedAppt(appt)}
-              selectedId={selectedAppt?.id}
-            />
-          </div>
-
-          <aside className="medico-side">
-            <div className="card calendar">
-              <WeekCalendar
-                anchorDate={weekStart}
-                selectedDate={selectedDate}
-                onSelectDate={handleCalendarSelect}
-              />
-            </div>
-
-            {/* ✅ Panel Pacientes removido */}
-            <div className="card" style={{ marginTop: 12, padding: 12 }}>
-              <div className="muted">
-                Tip: hacé click en un turno para resaltarlo.
-              </div>
-            </div>
-          </aside>
+      <aside className="medico-side">
+        <div className="card calendar">
+          <WeekCalendar
+            anchorDate={weekStart}
+            selectedDate={selectedDate}
+            onSelectDate={handleCalendarSelect}
+          />
         </div>
-      </main>
 
-      <Footer />
+        <div style={{ marginTop: 12 }}>
+          <Alert variant="info">Tocá un turno de la grilla para resaltarlo.</Alert>
+        </div>
+      </aside>
     </div>
   );
 }

@@ -1,12 +1,13 @@
 // src/pages/Secretaria.jsx
+// Sección "Agenda y turnos" de la secretaría: ABM de turnos | grilla | calendario.
+// (Pacientes y Pagos tienen su propia sección en la sidebar.)
 import { useEffect, useMemo, useState } from "react";
-import Header from "../ui/Header.jsx";
-import Footer from "../ui/Footer.jsx";
 import WeekCalendar from "../ui/WeekCalendar.jsx";
 import ScheduleGrid from "../ui/ScheduleGrid.jsx";
 import ABMPanel from "../ui/ABMPanel.jsx";
-import PagosPanel from "../ui/PagosPanel.jsx";
 import ResizableLayout from "../ui/ResizableLayout.jsx";
+import Button from "../components/ui/Button.jsx";
+import { Badge } from "../components/ui/Display.jsx";
 
 import { fetchTurnosSecretariaSemana } from "../api/turnosBackend.js";
 import { listarProfesionales } from "../api/abmBackend.js";
@@ -136,11 +137,6 @@ export default function Secretaria() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart, doctorId, useBackend, doctors.length]);
 
-  const logout = () => {
-    sessionStorage.removeItem("gt_backend_token");
-    window.location.href = "/login";
-  };
-
   const handleSelectAppt = (appt) => setSelectedAppt(appt || null);
 
   const handleCalendarSelect = (d) => {
@@ -151,13 +147,15 @@ export default function Secretaria() {
 
   const leftPane = (
     <div className="pane-scroll">
-      <div className="card" style={{ padding: 12, minHeight: 0 }}>
+      {/* pane-card: el card ocupa el alto del pane para que el ABM scrollee por dentro */}
+      <div className="card pane-card" style={{ padding: 12 }}>
         <ABMPanel
           onDataChanged={async () => {
             setSelectedAppt(null);
             await reload();
           }}
           selectedTurno={selectedAppt}
+          section="turnos"
         />
       </div>
     </div>
@@ -165,30 +163,41 @@ export default function Secretaria() {
 
   const centerPane = (
     <div className="pane-scroll">
-      <div
-        className="toolbar card"
-        style={{
-          padding: 10,
-          marginBottom: 10,
-          display: "flex",
-          gap: 8,
-          alignItems: "center",
-        }}
-      >
-        <span className="muted">Profesional:</span>
-        <select value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
-          <option value="">Todos</option>
-          {doctors.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+      <div className="ui-card agenda-toolbar">
+        <label className="agenda-toolbar__field">
+          <span className="material-symbols-rounded" aria-hidden>
+            stethoscope
+          </span>
+          <select
+            className="ui-input"
+            value={doctorId}
+            onChange={(e) => setDoctorId(e.target.value)}
+            aria-label="Filtrar por profesional"
+          >
+            <option value="">Todos los profesionales</option>
+            {doctors.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
 
-        {selectedAppt && (
-          <button className="btn-ghost" onClick={() => setSelectedAppt(null)}>
-            Limpiar selección
-          </button>
+        <span className="ui-spacer" />
+
+        {selectedAppt ? (
+          <>
+            <Badge variant="primary" icon="edit_calendar">
+              Editando turno de {selectedAppt.patient || "paciente"}
+            </Badge>
+            <Button size="sm" variant="ghost" icon="close" onClick={() => setSelectedAppt(null)}>
+              Soltar
+            </Button>
+          </>
+        ) : (
+          <span className="ui-soft agenda-toolbar__hint">
+            Tocá un turno de la grilla para editarlo
+          </span>
         )}
       </div>
 
@@ -214,36 +223,21 @@ export default function Secretaria() {
           onSelectDate={handleCalendarSelect}
         />
       </div>
-
-      <div className="pagos-scroll">
-        <PagosPanel />
-      </div>
     </div>
   );
 
   return (
-    <div className="page-wrap">
-      <Header
-        doctorName="Secretaría"
-        onLogout={logout}
-        enableHistorialButton={false}
-        showNotifications
+    <div className="gt-page gt-page--fill">
+      <ResizableLayout
+        left={leftPane}
+        center={centerPane}
+        right={rightPane}
+        defaultSizes={[28, 50, 22]}
+        minLeftPx={280}
+        minCenterPx={520}
+        minRightPx={280}
+        storageKey="gt_secretaria_split_v2"
       />
-
-      <main className="agenda-container" style={{ width: "100vw", maxWidth: "none" }}>
-        <ResizableLayout
-          left={leftPane}
-          center={centerPane}
-          right={rightPane}
-          defaultSizes={[28, 50, 22]}
-          minLeftPx={280}
-          minCenterPx={560}
-          minRightPx={300}
-          storageKey="gt_secretaria_split_v1"
-        />
-      </main>
-
-      <Footer />
     </div>
   );
 }

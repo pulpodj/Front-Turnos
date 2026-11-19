@@ -10,6 +10,7 @@ import {
   cancelarTurno,
   mapPacienteABMForm,
   listarObrasSociales,
+  OBRAS_SOCIALES_FALLBACK,
 } from "../api/abmBackend.js";
 import { getBackendToken } from "../api/http.js";
 import { parseYMDToLocal } from "../utils/date.js";
@@ -17,13 +18,6 @@ import { parseYMDToLocal } from "../utils/date.js";
 // ✅ NUEVO: para validar disponibilidad del profesional antes de crear
 import { fetchTurnosProfesionalPorFecha } from "../api/turnosBackend.js";
 
-// ===== Obras sociales (fallback local) =====
-const OBRAS_SOCIALES_FALLBACK = [
-  { id: 1, nombre: "OSDE" },
-  { id: 2, nombre: "Swiss Medical" },
-  { id: 3, nombre: "PAMI" },
-  { id: 4, nombre: "Galeno" },
-];
 
 // ===== Tratamientos (Turnos) =====
 const TRATAMIENTOS = [
@@ -241,8 +235,13 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart < bEnd && aEnd > bStart;
 }
 
-export default function ABMPanel({ onDataChanged, selectedTurno }) {
-  const [tab, setTab] = useState("pacientes");
+/**
+ * @param {"pacientes"|"turnos"} [section] Si se pasa, el panel muestra solo esa
+ *   sección y oculta las pestañas (cada una vive en su propia pantalla del menú).
+ */
+export default function ABMPanel({ onDataChanged, selectedTurno, section }) {
+  const [tabState, setTab] = useState(section || "pacientes");
+  const tab = section || tabState;
   const useBackend = !!getBackendToken();
 
   // ===== Pacientes =====
@@ -578,7 +577,8 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
 
   return (
     <div className="abm-panel">
-      {/* Tabs NO scrolleables */}
+      {/* Tabs NO scrolleables (ocultas si el panel está fijado a una sección) */}
+      {!section && (
       <div className="segmented">
         <button
           type="button"
@@ -597,6 +597,7 @@ export default function ABMPanel({ onDataChanged, selectedTurno }) {
           Turnos
         </button>
       </div>
+      )}
 
       {/* Scroll real: SOLO el contenido */}
       <div className="abm-scroll">

@@ -44,6 +44,14 @@ export async function listarProfesionales() {
 }
 
 // Obras sociales
+/** Lista local por si el backend no devuelve obras sociales */
+export const OBRAS_SOCIALES_FALLBACK = [
+  { id: 1, nombre: "OSDE" },
+  { id: 2, nombre: "Swiss Medical" },
+  { id: 3, nombre: "PAMI" },
+  { id: 4, nombre: "Galeno" },
+];
+
 export async function listarObrasSociales() {
   return httpJSON('/API/obras_sociales', { method: 'GET' });
 }
@@ -146,16 +154,13 @@ export function mapPacienteABMForm(p = {}) {
     // acepta mail o email
     mail: p.mail ?? p.email ?? "",
     // acepta camelCase o snake_case
-    fechaNacimiento: p.fechaNacimiento ?? p.fecha_nacimiento ?? "",
+    // input type="date" solo acepta YYYY-MM-DD (el backend puede mandar fecha+hora)
+    fechaNacimiento: String(p.fechaNacimiento ?? p.fecha_nacimiento ?? "").slice(0, 10),
     direccion: p.direccion ?? "",
     usuario: p.usuario ?? "",
     clave: p.clave ?? "",
     // acepta camelCase o snake_case
-    idObraSocial:
-      p.idObraSocial ??
-      p.id_obra_social ??
-      (p.obra_social_id ?? "") ??
-      "",
+    idObraSocial: p.idObraSocial ?? p.id_obra_social ?? p.obra_social_id ?? "",
   };
 }
 

@@ -5,12 +5,42 @@ import { httpJSON } from "./http.js";
 // Helpers
 // =========================================================
 
+/**
+ * Normaliza cualquier fecha del backend a "YYYY-MM-DD".
+ * Acepta "2025-03-10", "2025-03-10T00:00:00.000Z", "10/03/2025" o Date.
+ * Devuelve "" si no se puede interpretar.
+ */
+export function toYMD(value) {
+  if (!value) return "";
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value).trim();
+  // ISO (con o sin hora): tomamos la parte de fecha tal cual, sin pasar por
+  // new Date() para no correr el día por zona horaria (UTC-3).
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  // dd/mm/yyyy
+  const ar = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (ar) return `${ar[3]}-${ar[2].padStart(2, "0")}-${ar[1].padStart(2, "0")}`;
+  return "";
+}
+
+/** Hoy en hora local (no UTC) como "YYYY-MM-DD". */
+export function todayYMD() {
+  return toYMD(new Date());
+}
+
 export function emptyMovimientoForm() {
   return {
     id: null,
     id_movimiento_tipo: "",
-    fecha: new Date().toISOString().slice(0, 10),
-    fecha_vencimiento: new Date().toISOString().slice(0, 10),
+    fecha: todayYMD(),
+    fecha_vencimiento: todayYMD(),
     debe: "",
     haber: "",
     baja: false,
@@ -25,8 +55,9 @@ export function mapMovimientoToForm(m) {
   return {
     id: m?.id ?? null,
     id_movimiento_tipo: m?.id_movimiento_tipo ?? "",
-    fecha: m?.fecha ?? "",
-    fecha_vencimiento: m?.fecha_vencimiento ?? m?.fecha ?? "",
+    // input type="date" solo acepta YYYY-MM-DD
+    fecha: toYMD(m?.fecha),
+    fecha_vencimiento: toYMD(m?.fecha_vencimiento ?? m?.fecha),
     debe: m?.debe ?? "",
     haber: m?.haber ?? "",
     baja: !!m?.baja,

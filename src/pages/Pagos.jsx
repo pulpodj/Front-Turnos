@@ -1,4 +1,5 @@
 // src/pages/Pagos.jsx
+// Sección "Pagos": movimientos (cargos/pagos) de pacientes con filtros, totales y ABM.
 import { useEffect, useMemo, useState } from "react";
 import { getBackendToken } from "../api/http.js";
 import { listarPacientes } from "../api/abmBackend.js";
@@ -10,16 +11,112 @@ import {
   mapMovimientoToForm,
   searchMovimientos,
   listarMovimientoTipos,
+  toYMD,
 } from "../api/movimientosBackend.js";
+import Modal from "../components/ui/Modal.jsx";
+import Button, { IconButton } from "../components/ui/Button.jsx";
+import {
+  Alert,
+  Badge,
+  Card,
+  EmptyState,
+  Field,
+  PageHeader,
+  SkeletonRows,
+  StatCard,
+} from "../components/ui/Display.jsx";
+import { useConfirm, useToast } from "../components/ui/feedback.js";
 
+/* =========================================================
+   Datos
+   ========================================================= */
 
-function buildObs({ sesion, obs }) {
-  const cleanObs = String(obs || "").trim();
-  const s = String(sesion || "").trim();
-  if (!s) return cleanObs;
-  return `[SESION: ${s}]${cleanObs ? " " + cleanObs : ""}`.trim();
+/**
+ * Trae movimientos del backend y aplica TODOS los filtros también del lado
+ * del cliente. El backend no respeta de forma confiable los query params
+ * (por eso ya se re-filtraba paciente y tipo); las fechas no tenían ese
+ * respaldo y por eso "Fecha desde/hasta" no filtraban.
+ *
+ * Fechas: se comparan como strings "YYYY-MM-DD" (orden lexicográfico = orden
+ * cronológico), ambas inclusivas, sin pasar por Date para evitar corrimientos
+ * por zona horaria.
+ */
+async function fetchMovimientosFiltrados({ idPaciente, tipos = [], desde = "", hasta = "" }) {
+  const tiposToFetch = tipos.length ? tipos : [null];
+  const fetched = [];
+
+  for (const t of tiposToFetch) {
+    const data = await searchMovimientos({
+      ...(desde ? { fecha_desde: desde } : {}),
+      ...(hasta ? { fecha_hasta: hasta } : {}),
+      ...(idPaciente !== undefined ? { id_cliente: idPaciente } : {}),
+      ...(t !== null ? { id_movimiento_tipo: t } : {}),
+    });
+    const list = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.movimientos)
+      ? data.movimientos
+      : [];
+    fetched.push(...list);
+  }
+
+  // de-dupe por id
+  const byId = new Map();
+  for (const m of fetched) {
+    const k = String(m?.id ?? "");
+    if (k && !byId.has(k)) byId.set(k, m);
+  }
+
+  const tiposStr = tipos.map(String);
+
+  return Array.from(byId.values())
+    .filter((m) => !m?.baja)
+    .filter(
+      (m) =>
+        idPaciente === undefined ||
+        String(m?.id_cliente ?? m?.id_paciente ?? "") === String(idPaciente)
+    )
+    .filter((m) => !tiposStr.length || tiposStr.includes(String(m?.id_movimiento_tipo)))
+    .filter((m) => {
+      if (!desde && !hasta) return true;
+      const f = toYMD(m?.fecha);
+      if (!f) return false; // sin fecha válida no puede estar dentro de un rango
+      if (desde && f < desde) return false;
+      if (hasta && f > hasta) return false;
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        toYMD(b?.fecha).localeCompare(toYMD(a?.fecha)) || (Number(b?.id) || 0) - (Number(a?.id) || 0)
+    );
 }
 
+function sumTotals(list) {
+  let debe = 0;
+  let haber = 0;
+  for (const m of list) {
+    debe += Number(m.debe) || 0;
+    haber += Number(m.haber) || 0;
+  }
+  return { debe, haber, saldo: debe - haber };
+}
+
+/* =========================================================
+   Formato
+   ========================================================= */
+
+const money = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 });
+const fmtMoney = (n) => money.format(Number(n) || 0);
+
+/** "YYYY-MM-DD" -> "dd/mm/yyyy" para mostrar */
+function fmtFecha(value) {
+  const ymd = toYMD(value);
+  if (!ymd) return value ? String(value) : "";
+  const [y, m, d] = ymd.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+/** Importe escrito en formato AR ("1.500,50") -> número. "" si vacío, NaN si inválido. */
 function normalizeMoney(raw) {
   const txt = String(raw || "").trim();
   if (!txt) return "";
@@ -31,14 +128,36 @@ function normalizeMoney(raw) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+/** Número del backend (1500.5) -> texto editable en formato AR ("1.500,5"). */
+function toMoneyInput(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v === 0) return "";
+  return v.toLocaleString("es-AR", { maximumFractionDigits: 2 });
+}
+
+/** Observación guardada como "[SESION: 7] texto" <-> { sesion, obs } */
+function buildObs({ sesion, obs }) {
+  const cleanObs = String(obs || "").trim();
+  const s = String(sesion || "").trim();
+  if (!s) return cleanObs;
+  return `[SESION: ${s}]${cleanObs ? " " + cleanObs : ""}`.trim();
+}
+function splitObs(raw) {
+  const m = String(raw || "").match(/^\[SESION:\s*([^\]]*)\]\s*/);
+  if (!m) return { sesion: "", obs: String(raw || "") };
+  return { sesion: m[1].trim(), obs: String(raw).slice(m[0].length) };
+}
+
+const escHtml = (v) =>
+  String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
 function toCsv(rows) {
   const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
   const headers = ["id", "fecha", "paciente", "tipo", "debe", "haber", "saldo", "observaciones"];
   const lines = [headers.map(esc).join(",")];
-
   for (const r of rows) {
     lines.push(
-      [r.id, r.fecha, r.pacienteNombre, r.tipoNombre, r.debe, r.haber, r.saldo, r.observaciones]
+      [r.id, toYMD(r.fecha), r.pacienteNombre, r.tipoNombre, r.debe, r.haber, r.saldo, r.observaciones]
         .map(esc)
         .join(",")
     );
@@ -46,18 +165,25 @@ function toCsv(rows) {
   return lines.join("\n");
 }
 
+/* =========================================================
+   Página
+   ========================================================= */
+
+const EMPTY_EDITOR = { kind: "debe", importe: "", sesion: "", obs: "" };
+
 export default function Pagos() {
   const useBackend = !!getBackendToken();
+  const toast = useToast();
+  const confirm = useConfirm();
 
   // Datos base
   const [pacientes, setPacientes] = useState([]);
   const [movimientoTipos, setMovimientoTipos] = useState([]);
 
-  // Filtros
+  // Filtros (vacío = sin filtro)
   const [pacienteId, setPacienteId] = useState("");
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
-  // ✅ vacío = sin filtro de tipo
   const [tiposSeleccionados, setTiposSeleccionados] = useState([]);
   const [openTipos, setOpenTipos] = useState(false);
 
@@ -67,14 +193,17 @@ export default function Pagos() {
   const [movimientos, setMovimientos] = useState([]);
   const [searched, setSearched] = useState(false);
 
-  // Selección / Editor
-  const [selectedId, setSelectedId] = useState(null);
+  // Saldo total (on-demand)
+  const [saldoTotal, setSaldoTotal] = useState(null);
+  const [saldoTotalLoading, setSaldoTotalLoading] = useState(false);
+
+  // Editor
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editorMode, setEditorMode] = useState("new"); // new | edit
-  const [sesion, setSesion] = useState("");
   const [form, setForm] = useState(() => emptyMovimientoForm());
-  const debeFilled = String(form.debe || "").trim() !== "";
-  const haberFilled = String(form.haber || "").trim() !== "";
+  const [editor, setEditor] = useState(EMPTY_EDITOR);
+  const [editorErr, setEditorErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const isEdit = !!form.id;
 
   // Mapas
   const pacPorId = useMemo(
@@ -89,754 +218,645 @@ export default function Pagos() {
   useEffect(() => {
     if (!useBackend) return;
     (async () => {
-      try {
-        const [listPac, listTipos] = await Promise.all([
-          listarPacientes().catch(() => []),
-          listarMovimientoTipos().catch(() => []),
-        ]);
-
-        setPacientes(Array.isArray(listPac) ? [...listPac].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "")) : []);
-
-        const tipos = Array.isArray(listTipos) ? listTipos : [];
-        // ✅ filtrar bajas (no mostrar)
-        setMovimientoTipos(tipos.filter((t) => !t?.baja));
-      } catch (e) {
-        console.error(e);
-      }
+      const [listPac, listTipos] = await Promise.all([
+        listarPacientes().catch(() => []),
+        listarMovimientoTipos().catch(() => []),
+      ]);
+      setPacientes(
+        Array.isArray(listPac)
+          ? [...listPac].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""))
+          : []
+      );
+      // no mostrar tipos dados de baja
+      setMovimientoTipos((Array.isArray(listTipos) ? listTipos : []).filter((t) => !t?.baja));
     })();
   }, [useBackend]);
 
-  const tiposIds = useMemo(() => movimientoTipos.map((t) => t.id), [movimientoTipos]);
-
-  // Buscar (no trae todo solo: se ejecuta con botón)
-  async function buscar() {
+  // ---------- Búsqueda ----------
+  async function buscar(e) {
+    e?.preventDefault();
     setErr("");
+
+    if (desde && hasta && desde > hasta) {
+      setErr("\"Desde\" no puede ser posterior a \"Hasta\".");
+      return;
+    }
+
     setSearched(true);
-
-    const idPaciente = pacienteId ? Number(pacienteId) : undefined;
-    const fechaDesde = desde || undefined;
-    const fechaHasta = hasta || undefined;
-    // vacío => sin filtro de tipo
-    const tipos = tiposSeleccionados && tiposSeleccionados.length ? tiposSeleccionados : [];
-
     setLoading(true);
     try {
-      // ✅ Si hay 0 tipos seleccionados: 1 request (sin filtro por tipo)
-      // ✅ Si hay 1 tipo: 1 request
-      // ✅ Si hay N tipos (UI multi): N requests y unimos
-      const fetched = [];
-      const tiposToFetch = tipos.length ? tipos : [null];
-
-      for (const t of tiposToFetch) {
-        const data = await searchMovimientos({
-          ...(fechaDesde ? { fecha_desde: fechaDesde } : {}),
-          ...(fechaHasta ? { fecha_hasta: fechaHasta } : {}),
-          ...(idPaciente !== undefined ? { id_cliente: idPaciente } : {}),
-          ...(t !== null ? { id_movimiento_tipo: t } : {}),
-        });
-
-        const list = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.movimientos)
-          ? data.movimientos
-          : [];
-
-        fetched.push(...list);
-      }
-
-      // de-dupe por id
-      const byId = new Map();
-      for (const m of fetched) {
-        const k = String(m?.id ?? "");
-        if (!k) continue;
-        if (!byId.has(k)) byId.set(k, m);
-      }
-
-      // ✅ no mostrar movimientos dados de baja
-      const merged = Array.from(byId.values()).filter((m) => !m?.baja);
-      // orden por fecha desc (si existe)
-      merged.sort((a, b) => {
-        const ta = new Date(a?.fecha || 0).getTime();
-        const tb = new Date(b?.fecha || 0).getTime();
-        return tb - ta;
+      const list = await fetchMovimientosFiltrados({
+        idPaciente: pacienteId ? Number(pacienteId) : undefined,
+        tipos: tiposSeleccionados,
+        desde,
+        hasta,
       });
-
-      setMovimientos(merged.filter(m => idPaciente === undefined || String(m?.id_cliente ?? m?.id_paciente ?? "") === String(idPaciente)).filter(m => !tipos.length || tipos.includes(m?.id_movimiento_tipo)));
-      setSelectedId(null);
-    } catch (e) {
-      setErr(e.message || "No se pudo buscar movimientos.");
+      setMovimientos(list);
+    } catch (e2) {
+      setErr(e2.message || "No se pudo buscar movimientos.");
       setMovimientos([]);
     } finally {
       setLoading(false);
     }
   }
 
-  // Totales período (resultado actual)
-  const totPeriodo = useMemo(() => {
-    let d = 0,
-      h = 0;
-    for (const m of movimientos) {
-      d += Number(m.debe) || 0;
-      h += Number(m.haber) || 0;
-    }
-    return { debe: d, haber: h, saldo: d - h };
-  }, [movimientos]);
+  function limpiarFiltros() {
+    setPacienteId("");
+    setDesde("");
+    setHasta("");
+    setTiposSeleccionados([]);
+    setSaldoTotal(null);
+    setErr("");
+  }
 
-  // Saldo total (on-demand)
-  const [saldoTotal, setSaldoTotal] = useState(null);
-  const [saldoTotalLoading, setSaldoTotalLoading] = useState(false);
+  const hasFilters = !!(pacienteId || desde || hasta || tiposSeleccionados.length);
+
+  // El saldo total depende de paciente/tipos: se guarda con esa "clave"
+  // y deja de mostrarse si los filtros cambian.
+  const saldoKey = `${pacienteId}|${tiposSeleccionados.join(",")}`;
+  const saldoTotalVigente = saldoTotal?.key === saldoKey ? saldoTotal : null;
 
   async function calcularSaldoTotal() {
-    setSaldoTotal(null);
-
-    const idPaciente = pacienteId ? Number(pacienteId) : undefined;
-    const tipos = tiposSeleccionados && tiposSeleccionados.length ? tiposSeleccionados : [];
-
     setSaldoTotalLoading(true);
     try {
-      const fetched = [];
-      const tiposToFetch = tipos.length ? tipos : [null];
-
-      for (const t of tiposToFetch) {
-        const data = await searchMovimientos({
-          ...(idPaciente !== undefined ? { id_cliente: idPaciente } : {}),
-          ...(t !== null ? { id_movimiento_tipo: t } : {}),
-        });
-
-        const list = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.movimientos)
-          ? data.movimientos
-          : [];
-
-        fetched.push(...list);
-      }
-
-      // de-dupe por id
-      const byId = new Map();
-      for (const m of fetched) {
-        const k = String(m?.id ?? "");
-        if (!k) continue;
-        if (!byId.has(k)) byId.set(k, m);
-      }
-
-      const list = Array.from(byId.values()).filter((m) => !m?.baja).filter(m => idPaciente === undefined || String(m?.id_cliente ?? m?.id_paciente ?? "") === String(idPaciente)).filter(m => !tipos.length || tipos.includes(m?.id_movimiento_tipo));
-
-      let d = 0,
-        h = 0;
-      for (const m of list) {
-        d += Number(m.debe) || 0;
-        h += Number(m.haber) || 0;
-      }
-
-      setSaldoTotal({ debe: d, haber: h, saldo: d - h });
+      // mismos filtros de paciente/tipo, SIN rango de fechas
+      const list = await fetchMovimientosFiltrados({
+        idPaciente: pacienteId ? Number(pacienteId) : undefined,
+        tipos: tiposSeleccionados,
+      });
+      setSaldoTotal({ ...sumTotals(list), key: saldoKey });
     } catch (e) {
-      setErr(e.message || "No se pudo calcular saldo total.");
+      toast.error(e.message || "No se pudo calcular el saldo total.");
     } finally {
       setSaldoTotalLoading(false);
     }
   }
 
-  const rows = useMemo(() => {
-    return movimientos.map((m) => ({
-      ...m,
-      pacienteNombre:
-        pacPorId[String(m?.id_cliente ?? m?.id_paciente)] ||
-        m?.paciente_nombre ||
-        m?.cliente_nombre ||
-        "",
-      tipoNombre: tipoPorId[String(m.id_movimiento_tipo)] || m.id_movimiento_tipo,
-    }));
-  }, [movimientos, pacPorId, tipoPorId]);
+  const totPeriodo = useMemo(() => sumTotals(movimientos), [movimientos]);
 
-  function onNuevo() {
-    setEditorMode("new");
+  const rows = useMemo(
+    () =>
+      movimientos.map((m) => ({
+        ...m,
+        pacienteNombre:
+          pacPorId[String(m?.id_cliente ?? m?.id_paciente)] ||
+          m?.paciente_nombre ||
+          m?.cliente_nombre ||
+          "",
+        tipoNombre: tipoPorId[String(m.id_movimiento_tipo)] || m.id_movimiento_tipo,
+      })),
+    [movimientos, pacPorId, tipoPorId]
+  );
+
+  // ---------- Editor ----------
+  function abrirNuevo() {
     const base = emptyMovimientoForm();
     base.id_cliente = pacienteId || "";
-    base.id_movimiento_tipo = tiposSeleccionados[0] ?? "";
+    base.id_movimiento_tipo = tiposSeleccionados.length === 1 ? tiposSeleccionados[0] : "";
     setForm(base);
-    setSesion("");
+    setEditor(EMPTY_EDITOR);
+    setEditorErr("");
     setEditorOpen(true);
   }
 
-  function onAbrir() {
-    const m = movimientos.find((x) => x.id === selectedId);
-    if (!m) return;
-    setEditorMode("edit");
-    setForm(mapMovimientoToForm(m));
-    setSesion("");
+  function abrirEditar(m) {
+    const f = mapMovimientoToForm(m);
+    const { sesion, obs } = splitObs(f.observaciones);
+    const esDebe = (Number(f.debe) || 0) > 0 || !(Number(f.haber) > 0);
+    setForm(f);
+    setEditor({
+      kind: esDebe ? "debe" : "haber",
+      importe: toMoneyInput(esDebe ? f.debe : f.haber),
+      sesion,
+      obs,
+    });
+    setEditorErr("");
     setEditorOpen(true);
   }
 
-  async function onBaja() {
-    const m = movimientos.find((x) => x.id === selectedId);
-    if (!m) return;
+  async function guardarEditor(e) {
+    e.preventDefault();
+    setEditorErr("");
 
-    const ok = window.confirm(`¿Dar de baja/eliminar el movimiento #${m.id}?`);
-    if (!ok) return;
+    if (!form.id_cliente || !form.fecha || !form.id_movimiento_tipo) {
+      setEditorErr("Completá paciente, fecha y tipo de movimiento.");
+      return;
+    }
+    const importe = normalizeMoney(editor.importe);
+    if (importe === "" || !Number.isFinite(importe) || importe <= 0) {
+      setEditorErr("Ingresá un importe válido mayor a 0 (ej: 15.000,50).");
+      return;
+    }
 
-    setLoading(true);
+    const debe = editor.kind === "debe" ? importe : 0;
+    const haber = editor.kind === "haber" ? importe : 0;
+
+    const payload = {
+      ...form,
+      id_cliente: Number(form.id_cliente), // backend usa id_cliente
+      id_movimiento_tipo: Number(form.id_movimiento_tipo),
+      debe,
+      haber,
+      saldo: debe - haber,
+      observaciones: buildObs({ sesion: editor.sesion, obs: editor.obs }),
+      fecha_vencimiento: form.fecha_vencimiento || form.fecha,
+    };
+
+    setSaving(true);
     try {
-      await eliminarMovimiento(m.id);
+      if (isEdit) await modificarMovimiento(payload);
+      else await crearMovimiento(payload);
+
+      setEditorOpen(false);
+      toast.success(isEdit ? "Movimiento actualizado." : "Movimiento registrado.");
       await buscar();
-    } catch (e) {
-      setErr(e.message || "No se pudo eliminar el movimiento.");
+    } catch (e2) {
+      setEditorErr(e2.message || "No se pudo guardar.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
-  function onExportar() {
-    const csv = toCsv(rows);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
+  async function eliminar(m) {
+    const ok = await confirm({
+      title: `¿Eliminar el movimiento #${m.id}?`,
+      message: `${m.pacienteNombre || "Paciente"} · ${fmtFecha(m.fecha)} · ${fmtMoney(
+        Number(m.debe) || Number(m.haber)
+      )}. El movimiento se da de baja y deja de sumar en los saldos.`,
+      confirmText: "Eliminar",
+      danger: true,
+    });
+    if (!ok) return;
 
+    try {
+      await eliminarMovimiento(m.id);
+      toast.success(`Movimiento #${m.id} eliminado.`);
+      await buscar();
+    } catch (e) {
+      toast.error(e.message || "No se pudo eliminar el movimiento.");
+    }
+  }
+
+  // ---------- Exportar / imprimir ----------
+  function exportarCsv() {
+    const blob = new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `movimientos_${pacienteId || "sin_paciente"}_${new Date()
-      .toISOString()
-      .slice(0, 10)}.csv`;
+    a.download = `movimientos_${pacienteId || "todos"}_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    toast.info(`Se exportaron ${rows.length} movimientos.`);
   }
 
-  function imprimirTablaMovimientos() {
+  function imprimir() {
     if (!rows.length) return;
-
     const win = window.open("", "_blank", "width=900,height=650");
-    if (!win) return;
+    if (!win) {
+      toast.warning("El navegador bloqueó la ventana de impresión.");
+      return;
+    }
+    const filtroTxt = [
+      pacienteId ? `Paciente: ${pacPorId[String(pacienteId)] || pacienteId}` : "Todos los pacientes",
+      desde || hasta ? `Período: ${desde ? fmtFecha(desde) : "…"} – ${hasta ? fmtFecha(hasta) : "…"}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
-    const html = `
-      <html>
-        <head>
-          <title>Resumen de Movimientos</title>
-          <style>
-            body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; padding: 16px; }
-            h2 { margin-bottom: 4px; }
-            .muted { color: #666; font-size: 12px; margin-bottom: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-            th, td { border: 1px solid #ccc; padding: 6px 8px; font-size: 12px; text-align: left; }
-            th { background: #f2f2f2; }
-            .totales { margin-top: 12px; display: flex; justify-content: flex-end; gap: 16px; font-size: 13px; }
-          </style>
-        </head>
-        <body>
-          <h2>Movimientos</h2>
-          <div class="muted">${pacienteId ? `Paciente: ${pacPorId[String(pacienteId)] || pacienteId}` : "Todos los pacientes"}</div>
-
-          <table>
-            <thead>
-              <tr>
-                <th>ID movimiento</th>
-                <th>Fecha</th>
-                <th>Paciente</th>
-                <th>Tipo de movimiento</th>
-                <th>Debe</th>
-                <th>Haber</th>
-                <th>Saldo</th>
-                <th>Observaciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows
-                .map(
-                  (r) => `
-                <tr>
-                  <td>${r.id ?? ""}</td>
-                  <td>${r.fecha || ""}</td>
-                  <td>${r.pacienteNombre || ""}</td>
-                  <td>${r.tipoNombre}</td>
-                  <td>${r.debe ?? ""}</td>
-                  <td>${r.haber ?? ""}</td>
-                  <td>${r.saldo ?? ""}</td>
-                  <td>${r.observaciones ?? ""}</td>
-                </tr>
-              `
-                )
-                .join("")}
-            </tbody>
-          </table>
-
-          <div class="totales">
-            <strong>Debe: $${totPeriodo.debe.toLocaleString("es-AR")}</strong>
-            <strong>Haber: $${totPeriodo.haber.toLocaleString("es-AR")}</strong>
-            <strong>Saldo: $${totPeriodo.saldo.toLocaleString("es-AR")}</strong>
-          </div>
-        </body>
-      </html>
-    `;
-
-    win.document.write(html);
+    win.document.write(`
+      <html><head><title>Movimientos</title>
+      <style>
+        body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:16px;color:#1b2a3d}
+        h2{margin:0 0 4px} .muted{color:#5b7290;font-size:12px;margin-bottom:12px}
+        table{width:100%;border-collapse:collapse;margin-top:12px}
+        th,td{border-bottom:1px solid #dce6f3;padding:6px 8px;font-size:12px;text-align:left}
+        th{background:#f3f7fd;text-transform:uppercase;font-size:10px;letter-spacing:.05em;color:#5b7290}
+        .num{text-align:right}
+        .tot{margin-top:12px;display:flex;justify-content:flex-end;gap:16px;font-size:13px}
+      </style></head><body>
+        <h2>Movimientos</h2>
+        <div class="muted">${escHtml(filtroTxt)}</div>
+        <table><thead><tr>
+          <th>#</th><th>Fecha</th><th>Paciente</th><th>Tipo</th>
+          <th class="num">Debe</th><th class="num">Haber</th><th class="num">Saldo</th><th>Observaciones</th>
+        </tr></thead><tbody>
+        ${rows
+          .map(
+            (r) => `<tr>
+              <td>${escHtml(r.id)}</td><td>${escHtml(fmtFecha(r.fecha))}</td>
+              <td>${escHtml(r.pacienteNombre)}</td><td>${escHtml(r.tipoNombre)}</td>
+              <td class="num">${Number(r.debe) ? fmtMoney(r.debe) : ""}</td>
+              <td class="num">${Number(r.haber) ? fmtMoney(r.haber) : ""}</td>
+              <td class="num">${fmtMoney(r.saldo)}</td><td>${escHtml(r.observaciones)}</td>
+            </tr>`
+          )
+          .join("")}
+        </tbody></table>
+        <div class="tot">
+          <strong>Debe: ${fmtMoney(totPeriodo.debe)}</strong>
+          <strong>Haber: ${fmtMoney(totPeriodo.haber)}</strong>
+          <strong>Saldo: ${fmtMoney(totPeriodo.saldo)}</strong>
+        </div>
+      </body></html>`);
     win.document.close();
     win.focus();
     win.print();
     win.close();
   }
 
-  async function guardarEditor(e) {
-    e.preventDefault();
-    setErr("");
-
-    if (!form.id_cliente || !form.fecha || !form.id_movimiento_tipo) {
-      setErr("Completá Paciente, Fecha y Tipo.");
-      return;
-    }
-
-    const debeN = normalizeMoney(form.debe);
-    const haberN = normalizeMoney(form.haber);
-
-    const dFilled = String(form.debe || "").trim() !== "";
-    const hFilled = String(form.haber || "").trim() !== "";
-
-    if (!dFilled && !hFilled) {
-      setErr("Completá Debe o Haber (uno solo).");
-      return;
-    }
-    if (dFilled && hFilled) {
-      setErr("No podés completar Debe y Haber a la vez.");
-      return;
-    }
-    if (dFilled && (!Number.isFinite(debeN) || debeN <= 0)) {
-      setErr("Ingresá un valor válido en Debe.");
-      return;
-    }
-    if (hFilled && (!Number.isFinite(haberN) || haberN <= 0)) {
-      setErr("Ingresá un valor válido en Haber.");
-      return;
-    }
-
-    const obs = buildObs({ sesion, obs: form.observaciones });
-
-    const payload = {
-      ...form,
-      // ✅ backend usa id_cliente
-      id_cliente: Number(form.id_cliente),
-      id_movimiento_tipo: Number(form.id_movimiento_tipo),
-      debe: dFilled ? debeN : 0,
-      haber: hFilled ? haberN : 0,
-      observaciones: obs,
-      saldo: (dFilled ? debeN : 0) - (hFilled ? haberN : 0),
-      fecha_vencimiento: form.fecha_vencimiento || form.fecha,
-    };
-
-    setLoading(true);
-    try {
-      if (editorMode === "new") await crearMovimiento(payload);
-      else await modificarMovimiento(payload);
-
-      setEditorOpen(false);
-      await buscar();
-    } catch (e2) {
-      setErr(e2.message || "No se pudo guardar.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  // ---------- Render ----------
   if (!useBackend) {
     return (
-      <div className="page pagos-page">
-        <main className="container pagos-main" style={{ padding: "18px 0" }}>
-          <div className="card">
-            <h2>ABM Pagos</h2>
-            <p className="muted">Iniciá sesión contra el backend para usar el ABM de pagos.</p>
-          </div>
-        </main>
+      <div className="gt-page">
+        <PageHeader title="Pagos" />
+        <Alert variant="warning">Iniciá sesión contra el backend para usar el módulo de pagos.</Alert>
       </div>
     );
   }
 
-  return (
-    <div className="page pagos-page">
+  const tiposLabel = !tiposSeleccionados.length
+    ? "Todos los tipos"
+    : tiposSeleccionados.length === 1
+    ? tipoPorId[String(tiposSeleccionados[0])] || "1 tipo"
+    : `${tiposSeleccionados.length} tipos`;
 
-      <main className="container pagos-main" style={{ padding: "18px 0" }}>
-        {/* Barra superior de filtros (layout fino) */}
-          <div className="pagos-filtros-grid"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "2fr 1fr 1fr auto auto",
-              gap: 10,
-              alignItems: "end",
-            }}
+  return (
+    <div className="gt-page">
+      <PageHeader
+        title="Movimientos y pagos"
+        subtitle={
+          pacienteId
+            ? `Cuenta de ${pacPorId[String(pacienteId)] || "paciente"}`
+            : "Cargos y cobros de todos los pacientes"
+        }
+        actions={
+          <>
+            <Button icon="download" onClick={exportarCsv} disabled={!rows.length}>
+              Exportar CSV
+            </Button>
+            <Button icon="print" onClick={imprimir} disabled={!rows.length}>
+              Imprimir
+            </Button>
+            <Button variant="primary" icon="add" onClick={abrirNuevo}>
+              Nuevo movimiento
+            </Button>
+          </>
+        }
+      />
+
+      {/* Totales */}
+      <div className="ui-stats">
+        <StatCard label="Debe del período" value={fmtMoney(totPeriodo.debe)} icon="arrow_upward" tone="danger" />
+        <StatCard label="Haber del período" value={fmtMoney(totPeriodo.haber)} icon="arrow_downward" tone="success" />
+        <StatCard
+          label="Saldo del período"
+          value={fmtMoney(totPeriodo.saldo)}
+          icon="account_balance_wallet"
+          tone={totPeriodo.saldo > 0 ? "danger" : totPeriodo.saldo < 0 ? "success" : "primary"}
+          hint={totPeriodo.saldo > 0 ? "Pendiente de cobro" : totPeriodo.saldo < 0 ? "Saldo a favor" : "Sin saldo"}
+        />
+        <StatCard
+          label="Saldo total histórico"
+          value={saldoTotalVigente ? fmtMoney(saldoTotalVigente.saldo) : "—"}
+          icon="savings"
+          tone="warning"
+        >
+          <button
+            type="button"
+            className="ui-link-btn"
+            style={{ fontSize: ".8rem", marginTop: 2, alignSelf: "flex-start" }}
+            onClick={calcularSaldoTotal}
+            disabled={saldoTotalLoading}
           >
-            <div>
-              <label>Paciente</label>
-              <select value={pacienteId} onChange={(e) => setPacienteId(e.target.value)}>
-                <option value="">-- Seleccionar paciente --</option>
+            {saldoTotalLoading ? "Calculando…" : saldoTotalVigente ? "Recalcular" : "Calcular"}
+          </button>
+        </StatCard>
+      </div>
+
+      {/* Filtros */}
+      <Card>
+        <form onSubmit={buscar} className="ui-form-grid pagos-filtros">
+          <Field label="Paciente" className="pagos-filtros__pac">
+            <select className="ui-input" value={pacienteId} onChange={(e) => setPacienteId(e.target.value)}>
+              <option value="">Todos los pacientes</option>
+              {pacientes.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Desde">
+            <input
+              type="date"
+              className="ui-input"
+              value={desde}
+              max={hasta || undefined}
+              onChange={(e) => setDesde(e.target.value)}
+            />
+          </Field>
+
+          <Field label="Hasta">
+            <input
+              type="date"
+              className="ui-input"
+              value={hasta}
+              min={desde || undefined}
+              onChange={(e) => setHasta(e.target.value)}
+            />
+          </Field>
+
+          <div className="ui-field">
+            <span className="ui-label">Tipo de movimiento</span>
+            <button
+              type="button"
+              className="ui-input pagos-tipos-trigger"
+              onClick={() => setOpenTipos(true)}
+              aria-haspopup="dialog"
+            >
+              <span>{tiposLabel}</span>
+              <span className="material-symbols-rounded" aria-hidden>
+                tune
+              </span>
+            </button>
+          </div>
+
+          <div className="ui-inline pagos-filtros__actions">
+            <Button type="submit" variant="primary" icon="search" loading={loading}>
+              Buscar
+            </Button>
+            {hasFilters && (
+              <Button variant="ghost" onClick={limpiarFiltros}>
+                Limpiar
+              </Button>
+            )}
+          </div>
+        </form>
+        {err && (
+          <div style={{ marginTop: 14 }}>
+            <Alert variant="danger">{err}</Alert>
+          </div>
+        )}
+      </Card>
+
+      {/* Resultados */}
+      <Card
+        title="Movimientos"
+        icon="receipt_long"
+        flush
+        actions={searched && !loading && <Badge variant="primary">{rows.length} resultados</Badge>}
+      >
+        {!searched ? (
+          <EmptyState
+            icon="manage_search"
+            title="Buscá movimientos"
+            description="Elegí un paciente, un rango de fechas o tipos (todo opcional) y tocá Buscar."
+          />
+        ) : !loading && rows.length === 0 ? (
+          <EmptyState
+            icon="receipt_long"
+            title="No hay movimientos"
+            description="No encontramos movimientos con estos filtros."
+            action={
+              hasFilters ? (
+                <Button variant="secondary" onClick={limpiarFiltros}>
+                  Limpiar filtros
+                </Button>
+              ) : null
+            }
+          />
+        ) : (
+          <div className="ui-table-wrap">
+            <table className="ui-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Paciente</th>
+                  <th>Tipo</th>
+                  <th className="num">Debe</th>
+                  <th className="num">Haber</th>
+                  <th className="num">Saldo</th>
+                  <th>Observaciones</th>
+                  <th className="actions" aria-label="Acciones" />
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <SkeletonRows rows={6} cols={8} />
+                ) : (
+                  rows.map((m) => (
+                    <tr key={m.id} className="is-clickable" onClick={() => abrirEditar(m)}>
+                      <td className="nowrap">
+                        {fmtFecha(m.fecha)}
+                        <div className="ui-soft" style={{ fontSize: ".75rem" }}>
+                          #{m.id}
+                        </div>
+                      </td>
+                      <td>{m.pacienteNombre || <span className="ui-soft">—</span>}</td>
+                      <td>
+                        <Badge variant="neutral">{m.tipoNombre}</Badge>
+                      </td>
+                      <td className="num">{Number(m.debe) ? fmtMoney(m.debe) : <span className="ui-soft">—</span>}</td>
+                      <td className="num">{Number(m.haber) ? fmtMoney(m.haber) : <span className="ui-soft">—</span>}</td>
+                      <td className={`num ${Number(m.saldo) > 0 ? "ui-money-pos" : Number(m.saldo) < 0 ? "ui-money-neg" : ""}`}>
+                        {fmtMoney(m.saldo)}
+                      </td>
+                      <td className="truncate" title={m.observaciones || ""}>
+                        {m.observaciones || <span className="ui-soft">—</span>}
+                      </td>
+                      <td className="actions" onClick={(e) => e.stopPropagation()}>
+                        <IconButton icon="edit" label="Editar" onClick={() => abrirEditar(m)} />
+                        <IconButton icon="delete" label="Eliminar" danger onClick={() => eliminar(m)} />
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Editor */}
+      <Modal
+        open={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        dismissible={!saving}
+        title={isEdit ? `Editar movimiento #${form.id}` : "Nuevo movimiento"}
+        subtitle={isEdit ? "Modificá los datos y guardá los cambios." : "Registrá un cargo o un pago del paciente."}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditorOpen(false)} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button variant="primary" type="submit" form="mov-editor" icon="check" loading={saving}>
+              {isEdit ? "Guardar cambios" : "Registrar"}
+            </Button>
+          </>
+        }
+      >
+        <form id="mov-editor" onSubmit={guardarEditor} noValidate>
+          <div className="ui-segmented" role="radiogroup" aria-label="Tipo de importe" style={{ marginBottom: 16 }}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={editor.kind === "debe"}
+              className={editor.kind === "debe" ? "is-active" : ""}
+              onClick={() => setEditor((s) => ({ ...s, kind: "debe" }))}
+            >
+              <span className="material-symbols-rounded" aria-hidden>arrow_upward</span>
+              Cargo (Debe)
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={editor.kind === "haber"}
+              className={editor.kind === "haber" ? "is-active" : ""}
+              onClick={() => setEditor((s) => ({ ...s, kind: "haber" }))}
+            >
+              <span className="material-symbols-rounded" aria-hidden>arrow_downward</span>
+              Pago (Haber)
+            </button>
+          </div>
+
+          <div className="ui-row-2">
+            <Field label="Paciente" required>
+              <select
+                className="ui-input"
+                value={form.id_cliente}
+                onChange={(e) => setForm((s) => ({ ...s, id_cliente: e.target.value }))}
+              >
+                <option value="">Seleccionar…</option>
                 {pacientes.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.nombre}
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div>
-              <label>Fecha desde</label>
-              <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-            </div>
-
-            <div>
-              <label>Fecha hasta</label>
-              <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-            </div>
-
-            <button type="button" className="btn-ghost" onClick={() => setOpenTipos(true)}>
-              Tipos ▾
-            </button>
-
-            <button
-              type="button"
-              className={`primary ${loading ? "loading" : ""}`}
-              onClick={buscar}
-              disabled={loading}
-            >
-              {loading ? "Buscando..." : "Buscar"}
-            </button>
+            </Field>
+            <Field label="Fecha" required>
+              <input
+                type="date"
+                className="ui-input"
+                value={form.fecha}
+                onChange={(e) => setForm((s) => ({ ...s, fecha: e.target.value }))}
+              />
+            </Field>
           </div>
 
-          {err && (
-            <div className="alert error" style={{ marginTop: 10 }}>
-              {err}
+          <div className="ui-row-2">
+            <Field label="Tipo de movimiento" required>
+              <select
+                className="ui-input"
+                value={form.id_movimiento_tipo}
+                onChange={(e) => setForm((s) => ({ ...s, id_movimiento_tipo: e.target.value }))}
+              >
+                <option value="">Seleccionar…</option>
+                {movimientoTipos.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.tipo}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="ui-row-2" style={{ marginTop: 0 }}>
+              <Field label="Importe" required>
+                <input
+                  className="ui-input"
+                  inputMode="decimal"
+                  placeholder="15.000,50"
+                  value={editor.importe}
+                  onChange={(e) => setEditor((s) => ({ ...s, importe: e.target.value }))}
+                />
+              </Field>
+              <Field label="Sesión #">
+                <input
+                  type="number"
+                  min="1"
+                  className="ui-input"
+                  placeholder="Ej: 7"
+                  value={editor.sesion}
+                  onChange={(e) => setEditor((s) => ({ ...s, sesion: e.target.value }))}
+                />
+              </Field>
+            </div>
+          </div>
+
+          <Field label="Observaciones">
+            <textarea
+              className="ui-input"
+              rows={3}
+              value={editor.obs}
+              onChange={(e) => setEditor((s) => ({ ...s, obs: e.target.value }))}
+            />
+          </Field>
+
+          {editorErr && (
+            <div style={{ marginTop: 14 }}>
+              <Alert variant="danger">{editorErr}</Alert>
             </div>
           )}
+        </form>
+      </Modal>
 
-        {/* Layout central: grilla + acciones */} 
-        <div className="pagos-layout">
-          {/* Grilla */} 
-          <div className="card" style={{ overflow: "auto" }}>
-            <div className="inline" style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ margin: 0 }}>Movimientos</h2>
-              <div className="muted" style={{ fontSize: 13 }}>
-                {pacienteId
-                  ? `Paciente: ${pacPorId[String(pacienteId)] || pacienteId}`
-                  : "Todos los pacientes"}
-              </div>
-            </div>
-
-            <table className="tabla-movimientos" style={{ marginTop: 10 }}>
-              <thead>
-                <tr>
-                  <th>ID movimiento</th>
-                  <th>Fecha</th>
-                  <th>Paciente</th>
-                  <th>Tipo de movimiento</th>
-                  <th>Debe</th>
-                  <th>Haber</th>
-                  <th>Saldo</th>
-                  <th>Observaciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!searched && (
-                  <tr>
-                    <td colSpan={8} className="muted">
-                      Usá los filtros (opcional) y tocá Buscar.
-                    </td>
-                  </tr>
-                )}
-
-                {searched && !loading && rows.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="muted">
-                      No hay movimientos para los filtros actuales.
-                    </td>
-                  </tr>
-                )}
-
-                {rows.map((m) => {
-                  const selected = m.id === selectedId;
-                  return (
-                    <tr
-                      key={m.id}
-                      onClick={() => setSelectedId(m.id)}
-                      style={{
-                        cursor: "pointer",
-                        background: selected ? "rgba(38,132,254,0.10)" : "transparent",
-                      }}
-                    >
-                      <td>{m.id}</td>
-                      <td>{m.fecha || ""}</td>
-                      <td>{m.pacienteNombre || ""}</td>
-                      <td>{m.tipoNombre}</td>
-                      <td>{m.debe ?? ""}</td>
-                      <td>{m.haber ?? ""}</td>
-                      <td>{m.saldo ?? ""}</td>
-                      <td
-                        style={{
-                          maxWidth: 360,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {m.observaciones ?? ""}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Sidebar */}
-          <div className="card pagos-tabla" style={{ height: "fit-content" }}>
-            <h3 style={{ marginTop: 0 }}>Acciones</h3>
-
-            <div style={{ display: "grid", gap: 8 }}>
-              <button className="primary" type="button" onClick={onNuevo} disabled={!pacienteId || loading}>
-                Nuevo
-              </button>
-
-              <button className="btn-ghost" type="button" onClick={onAbrir} disabled={!selectedId || loading}>
-                Abrir
-              </button>
-
-              <button className="btn-ghost" type="button" onClick={onBaja} disabled={!selectedId || loading}>
-                Baja
-              </button>
-
-              <button className="btn-ghost" type="button" onClick={onExportar} disabled={rows.length === 0}>
-                Exportar CSV
-              </button>
-            </div>
-
-            <hr style={{ margin: "12px 0", opacity: 0.2 }} />
-
-            <h3 style={{ marginTop: 0 }}>Reporte</h3>
-            <div style={{ display: "grid", gap: 8 }}>
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={imprimirTablaMovimientos}
-                disabled={rows.length === 0}
-              >
-                Imprimir tabla
-              </button>
-            </div>
-
-            <hr style={{ margin: "12px 0", opacity: 0.2 }} />
-
-            <h3 style={{ marginTop: 0 }}>Totales</h3>
-
-            <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
-              <div className="inline" style={{ justifyContent: "space-between" }}>
-                <span className="muted">Debe período</span>
-                <strong>${totPeriodo.debe.toLocaleString("es-AR")}</strong>
-              </div>
-              <div className="inline" style={{ justifyContent: "space-between" }}>
-                <span className="muted">Haber período</span>
-                <strong>${totPeriodo.haber.toLocaleString("es-AR")}</strong>
-              </div>
-              <div className="inline" style={{ justifyContent: "space-between" }}>
-                <span className="muted">Saldo período</span>
-                <strong>${totPeriodo.saldo.toLocaleString("es-AR")}</strong>
-              </div>
-
-              <button
-                className="btn-ghost"
-                type="button"
-                onClick={calcularSaldoTotal}
-                disabled={saldoTotalLoading}
-                style={{ marginTop: 6 }}
-              >
-                {saldoTotalLoading ? "Calculando..." : "Calcular saldo total"}
-              </button>
-
-              {saldoTotal && (
-                <>
-                  <div className="inline" style={{ justifyContent: "space-between", marginTop: 6 }}>
-                    <span className="muted">Saldo total</span>
-                    <strong>${saldoTotal.saldo.toLocaleString("es-AR")}</strong>
-                  </div>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    (Sin rango de fechas, ${pacienteId ? "mismo paciente" : "todos los pacientes"}/tipos)
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* Editor modal */}
-      {editorOpen && (
-        <div className="modal-overlay" onClick={() => setEditorOpen(false)}>
-          <div className="card modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
-            <div className="modal-head">
-              <h3 style={{ margin: 0 }}>
-                {editorMode === "new" ? "Nuevo movimiento" : `Editar movimiento #${form.id}`}
-              </h3>
-              <button className="btn-ghost" onClick={() => setEditorOpen(false)}>
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={guardarEditor} className="form" style={{ marginTop: 10 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 180px", gap: 10 }}>
-                <label style={{ margin: 0 }}>
-                  Paciente
-                  <select
-                    value={form.id_cliente}
-                    onChange={(e) => setForm((s) => ({ ...s, id_cliente: e.target.value }))}
-                  >
-                    <option value="">-- Seleccionar --</option>
-                    {pacientes.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label style={{ margin: 0 }}>
-                  Fecha
-                  <input type="date" value={form.fecha} onChange={(e) => setForm((s) => ({ ...s, fecha: e.target.value }))} />
-                </label>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 140px", gap: 10, marginTop: 10 }}>
-                <label style={{ margin: 0 }}>
-                  Tipo
-                  <select
-                    value={form.id_movimiento_tipo}
-                    onChange={(e) => setForm((s) => ({ ...s, id_movimiento_tipo: e.target.value }))}
-                  >
-                    <option value="">-- Seleccionar --</option>
-                    {movimientoTipos.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.tipo}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label style={{ margin: 0 }}>
-                  Sesión #
-                  <input type="number" min="1" value={sesion} onChange={(e) => setSesion(e.target.value)} placeholder="Ej: 7" />
-                </label>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-                <label style={{ margin: 0 }}>
-                  Debe
-                  <input
-                    type="text"
-                    value={form.debe}
-                    disabled={haberFilled}
-                    onChange={(e) =>
-                      setForm((s) => ({ ...s, debe: e.target.value, haber: e.target.value.trim() ? "" : s.haber }))
-                    }
-                    placeholder="Ej: 1500"
-                  />
-                </label>
-
-                <label style={{ margin: 0 }}>
-                  Haber
-                  <input
-                    type="text"
-                    value={form.haber}
-                    disabled={debeFilled}
-                    onChange={(e) =>
-                      setForm((s) => ({ ...s, haber: e.target.value, debe: e.target.value.trim() ? "" : s.debe }))
-                    }
-                    placeholder="Ej: 1500"
-                  />
-                </label>
-              </div>
-
-              <label style={{ marginTop: 10 }}>
-                Observaciones
-                <textarea
-                  rows={3}
-                  value={form.observaciones}
-                  onChange={(e) => setForm((s) => ({ ...s, observaciones: e.target.value }))}
-                />
-              </label>
-
-              <div className="modal-actions">
-                <button type="button" className="btn-ghost" onClick={() => setEditorOpen(false)}>
-                  Cancelar
+      {/* Selector de tipos */}
+      <Modal
+        open={openTipos}
+        onClose={() => setOpenTipos(false)}
+        size="sm"
+        title="Tipos de movimiento"
+        subtitle="Sin selección = todos los tipos"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setTiposSeleccionados([])}>
+              Ninguno
+            </Button>
+            <Button variant="ghost" onClick={() => setTiposSeleccionados(movimientoTipos.map((t) => t.id))}>
+              Todos
+            </Button>
+            <span className="ui-spacer" />
+            <Button variant="primary" onClick={() => setOpenTipos(false)}>
+              Aplicar
+            </Button>
+          </>
+        }
+      >
+        {movimientoTipos.length === 0 ? (
+          <EmptyState icon="category" title="Sin tipos" description="No hay tipos de movimiento cargados." />
+        ) : (
+          <div className="ui-checklist">
+            {movimientoTipos.map((t) => {
+              const on = tiposSeleccionados.includes(t.id);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={on}
+                  className={`ui-check ${on ? "is-on" : ""}`}
+                  onClick={() =>
+                    setTiposSeleccionados((prev) =>
+                      prev.includes(t.id) ? prev.filter((x) => x !== t.id) : [...prev, t.id]
+                    )
+                  }
+                >
+                  <span className="ui-check__box">
+                    {on && (
+                      <span className="material-symbols-rounded" aria-hidden>
+                        check
+                      </span>
+                    )}
+                  </span>
+                  {t.tipo}
                 </button>
-                <button type="submit" className={`primary ${loading ? "loading" : ""}`} disabled={loading}>
-                  {loading ? "Guardando..." : "Guardar"}
-                </button>
-              </div>
-            </form>
+              );
+            })}
           </div>
-        </div>
-      )}
-
-      {/* Modal tipos */}
-      {openTipos && (
-  <div className="modal-overlay" onClick={() => setOpenTipos(false)}>
-    <div
-      className="card modal pagos-tipos-modal"
-      onClick={(e) => e.stopPropagation()}
-      style={{ maxWidth: 520 }}
-    >
-      <div className="modal-head">
-        <h3 style={{ margin: 0 }}>Tipos de movimiento</h3>
-        <button className="btn-ghost" type="button" onClick={() => setOpenTipos(false)}>
-          ✕
-        </button>
-      </div>
-
-      <div className="pagos-tipos-actions">
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() => setTiposSeleccionados(tiposIds)}
-        >
-          Todos
-        </button>
-
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() => setTiposSeleccionados([])}
-        >
-          Ninguno
-        </button>
-      </div>
-
-      <div className="pagos-tipos-list">
-        {movimientoTipos.map((t) => {
-          const checked = tiposSeleccionados.includes(t.id);
-          return (
-            <button
-              key={t.id}
-              type="button"
-              className={`pagos-tipos-item ${checked ? "is-on" : ""}`}
-              onClick={() => {
-                setTiposSeleccionados((prev) => {
-                  if (prev.includes(t.id)) return prev.filter((x) => x !== t.id);
-                  return [...prev, t.id];
-                });
-              }}
-            >
-              <input
-                className="pagos-tipos-checkbox"
-                type="checkbox"
-                checked={checked}
-                readOnly
-              />
-              <span className="pagos-tipos-label">{t.tipo}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="modal-actions">
-        <button type="button" className="primary" onClick={() => setOpenTipos(false)}>
-          Aplicar
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+        )}
+      </Modal>
     </div>
   );
 }

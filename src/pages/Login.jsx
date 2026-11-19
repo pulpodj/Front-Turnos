@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import GlassCard from "../components/GlassCard.jsx";
 import { isValidDNI } from "../utils/validators.js";
+import { saveRole, homeForRole } from "../utils/session.js";
 import {
   loginPacientePasswordMock,
   loginColaboradorMock,
@@ -66,8 +67,10 @@ export default function Login() {
         pass: pacPass,
       });
 
+      const role = session?.role || "paciente";
+      saveRole(role);
       const from = loc.state?.from?.pathname;
-      const dest = from || (session.role === "paciente" ? "/mis-turnos" : "/agenda");
+      const dest = from || homeForRole(role);
       nav(dest, { replace: true });
     } catch (err) {
       console.error(err);
@@ -96,9 +99,10 @@ export default function Login() {
     try {
       const session = await loginColaboradorMock({ user, pass });
       const role = session?.role || "medico";
+      saveRole(role);
       const from = loc.state?.from?.pathname;
 
-      const dest = from || (role === "admin" ? "/abm/turnos" : "/agenda");
+      const dest = from || homeForRole(role);
       nav(dest, { replace: true });
     } catch (err) {
       console.error(err);

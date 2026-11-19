@@ -1,0 +1,323 @@
+/* src/styles.layout.css
+   Layout con sidebar (AppLayout). Se importa después de los estilos viejos:
+   además de definir el shell, neutraliza los anchos 100vw y altos
+   calc(100vh - X) de los estilos viejos, que asumían pantalla completa.
+   Usa los tokens de styles/ui.css.
+*/
+
+/* =========================
+   Shell
+   ========================= */
+.gt-shell{
+  --sb-w: 248px;
+  --sb-w-collapsed: 72px;
+  --topbar-h: 64px;
+
+  display: grid;
+  grid-template-columns: var(--sb-w) minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--ui-bg, #f3f7fd);
+  transition: grid-template-columns var(--ui-med, .22s) var(--ui-ease, ease);
+}
+.gt-shell.is-collapsed{
+  grid-template-columns: var(--sb-w-collapsed) minmax(0, 1fr);
+}
+
+/* =========================
+   Sidebar
+   ========================= */
+.gt-sidebar{
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ui-surface, #fff);
+  border-right: 1px solid var(--ui-border, #dce6f3);
+}
+
+.gt-sidebar__header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  height: var(--topbar-h);
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--ui-border, #dce6f3);
+}
+.gt-sidebar__brand{ display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gt-sidebar__logo{
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--ui-primary, #2684fe), #5aa4ff);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(38, 132, 254, .3);
+}
+.gt-sidebar__logo .material-symbols-rounded{ font-size: 22px; }
+.gt-sidebar__brand-text{ display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.gt-sidebar__brand-text strong{ color: var(--ui-text); font-size: .95rem; white-space: nowrap; }
+.gt-sidebar__brand-text small{ color: var(--ui-text-muted); font-size: .75rem; white-space: nowrap; }
+
+.gt-sidebar__toggle{
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  transition: background var(--ui-fast), color var(--ui-fast);
+}
+.gt-sidebar__toggle:hover{ background: var(--ui-surface-2); color: var(--ui-primary); }
+
+.gt-sidebar__nav{
+  flex: 1;
+  padding: 10px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.gt-sidebar__group-label{
+  padding: 10px 20px 6px;
+  color: var(--ui-text-soft);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.gt-sidebar__separator{
+  height: 1px;
+  margin: 8px 16px;
+  background: var(--ui-border);
+}
+
+/* Link con indicador lateral (patrón del ERP) */
+.gt-nav-link{
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 2px 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: #3d5370;
+  font-size: .92rem;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background var(--ui-fast), color var(--ui-fast);
+}
+.gt-nav-link::before{
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ui-primary);
+  transform: scaleY(0);
+  transition: transform var(--ui-med) var(--ui-ease);
+}
+.gt-nav-link:hover{ background: var(--ui-surface-2); color: var(--ui-text); }
+.gt-nav-link.is-active{
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
+  font-weight: 650;
+}
+.gt-nav-link.is-active::before{ transform: scaleY(1); }
+.gt-nav-link .material-symbols-rounded{ flex: none; font-size: 22px; }
+.gt-nav-link.is-active .material-symbols-rounded{ font-variation-settings: "FILL" 1; }
+
+.gt-sidebar__footer{
+  flex: none;
+  padding: 12px 16px;
+  border-top: 1px solid var(--ui-border);
+  color: var(--ui-text-soft);
+  font-size: .72rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Contraída: solo íconos */
+.is-collapsed .gt-sidebar__text{ display: none; }
+.is-collapsed .gt-sidebar__header{ flex-direction: column; justify-content: center; height: auto; min-height: var(--topbar-h); padding: 10px 0; gap: 6px; }
+.is-collapsed .gt-sidebar__separator{ margin: 8px 14px; }
+.is-collapsed .gt-nav-link{ justify-content: center; padding: 10px; }
+
+/* =========================
+   Zona principal + header
+   ========================= */
+.gt-main{
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.gt-topbar{
+  position: relative;
+  z-index: 20; /* dropdowns sobre el contenido */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: var(--topbar-h);
+  padding: 0 20px;
+  background: var(--ui-surface);
+  border-bottom: 1px solid var(--ui-border);
+}
+.gt-topbar__heading{ flex: 1; min-width: 0; }
+.gt-topbar__title{
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-text);
+  font-size: 1.08rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.gt-topbar__desc{
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-size: .8rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.gt-topbar__actions{ display: flex; align-items: center; gap: 6px; }
+/* (con .gt-topbar para ganarle a .ui-icon-btn, que define display) */
+.gt-topbar .gt-burger{ display: none; }
+.gt-backdrop{ display: none; } /* solo se usa en mobile */
+
+/* Menú de usuario */
+.gt-user{ position: relative; }
+.gt-user__btn{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-text-muted);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--ui-fast), border-color var(--ui-fast);
+}
+.gt-user__btn:hover,
+.gt-user__btn[aria-expanded="true"]{ background: var(--ui-surface-2); border-color: var(--ui-border); }
+.gt-user__text{ display: flex; flex-direction: column; text-align: left; line-height: 1.2; }
+.gt-user__text strong{ color: var(--ui-text); font-size: .88rem; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gt-user__text small{ color: var(--ui-text-muted); font-size: .74rem; }
+
+.gt-content{
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px;
+}
+
+/* =========================
+   Páginas
+   ========================= */
+.gt-page{ min-width: 0; }
+
+/* Ocupa todo el alto disponible (layouts con paneles que scrollean adentro) */
+.gt-page--fill{
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.gt-page--narrow{
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.gt-page-card{ padding: 16px; }
+
+/* --- Overrides de estilos viejos pensados para pantalla completa --- */
+
+/* Secretaría: el shell resizable llena el contenido (antes: 100vh - 120px) */
+.gt-content .resizable-shell{
+  height: 100%;
+  margin: 0;
+}
+
+/* Pacientes: el ABM crece con su contenido y scrollea la página */
+.gt-page--narrow .abm-panel,
+.gt-page--narrow .abm-scroll{
+  max-height: none;
+  overflow: visible;
+}
+
+/* Pagos (antes página suelta / pop-up) */
+.gt-content .pagos-main{
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* Historial clínico (antes pop-up de alto fijo) */
+.gt-content .hc-popup{
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+/* =========================
+   Responsive: sidebar off-canvas
+   ========================= */
+@media (max-width: 900px){
+  .gt-shell,
+  .gt-shell.is-collapsed{
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gt-sidebar{
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: 272px;
+    box-shadow: var(--ui-shadow-lg);
+    transform: translateX(-100%);
+    transition: transform var(--ui-med) var(--ui-ease);
+  }
+  .is-mobile-open .gt-sidebar{ transform: none; }
+
+  /* En mobile la sidebar siempre muestra textos */
+  .is-collapsed .gt-sidebar__text{ display: revert; }
+  .is-collapsed .gt-sidebar__brand-text{ display: flex; }
+  .is-collapsed .gt-sidebar__header{ flex-direction: row; justify-content: space-between; height: var(--topbar-h); padding: 0 12px 0 16px; }
+  .is-collapsed .gt-nav-link{ justify-content: flex-start; padding: 9px 12px; }
+  .gt-sidebar__toggle{ display: none; }
+
+  .gt-backdrop{
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(14, 27, 43, .38);
+    animation: ui-fade-in var(--ui-fast) ease;
+  }
+  .is-mobile-open .gt-backdrop{ display: block; }
+
+  .gt-topbar .gt-burger{ display: inline-grid; }
+  .gt-topbar{ padding: 0 12px; }
+  .gt-content{ padding: 14px; }
+}
+
+@media (max-width: 600px){
+  .gt-hide-sm{ display: none !important; }
+  .gt-topbar__desc{ display: none; }
+}

@@ -1,102 +1,74 @@
 // src/pages/PacientesHistorial.jsx
+// Sección "Historial clínico" (profesional): pacientes | historias | formulario.
 import { useEffect, useMemo, useState } from "react";
 import { listarPacientes } from "../api/abmBackend.js";
-import { getBackendToken, setBackendToken } from "../api/http.js";
-
+import { getBackendToken } from "../api/http.js";
 import {
   listarHistoriasClinicasPaciente,
   crearHistoriaClinica,
   actualizarHistoriaClinica,
   borrarHistoriaClinica,
 } from "../api/historialClinicoBackend.js";
-
-function bootstrapTokenFromOpener() {
-  try {
-    if (getBackendToken()) return true;
-
-    const openerToken =
-      window.opener?.sessionStorage?.getItem("gt_backend_token") || "";
-
-    if (openerToken) {
-      setBackendToken(openerToken);
-      return true;
-    }
-  } catch {}
-  return false;
-}
+import Button from "../components/ui/Button.jsx";
+import { Alert, Avatar, Badge, Card, EmptyState, Field, PageHeader } from "../components/ui/Display.jsx";
+import { useConfirm, useToast } from "../components/ui/feedback.js";
 
 const emptyForm = (id_paciente) => ({
   id: null,
   id_paciente: id_paciente || "",
   diagnostico: "",
-  cant_sesiones: "", // string controlado (max 2 dígitos)
+  cant_sesiones: "", // string controlado (máx. 2 dígitos)
   fecha_ini: "",
   fecha_fin: "",
-  tratamiento: "", // ✅ ahora es textarea, mejor vacío por defecto
+  tratamiento: "",
   observaciones: "",
 });
 
+const normalize = (s) =>
+  String(s ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+
+function fmtFecha(v) {
+  const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
+}
+
+const sortHistorias = (arr) => [...arr].sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+
 export default function PacientesHistorial() {
-  const isPopup = !!window.opener && window.opener !== window;
+  const hasToken = !!getBackendToken();
+  const toast = useToast();
+  const confirm = useConfirm();
 
-  // ✅ al abrir pop-up, copiamos token del opener si existe
-  useEffect(() => {
-    bootstrapTokenFromOpener();
-  }, []);
-
-  // 🔥 DEBUG UI: NO bloqueamos por permisos
-  const token = getBackendToken();
-  const hasToken = !!token;
-
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(hasToken);
   const [error, setError] = useState("");
-
   const [pacientes, setPacientes] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
 
   const [historias, setHistorias] = useState([]);
-  const [histLoading, setHistLoading] = useState(false);
+  const [histLoading, setHistLoading] = useState(hasToken); // el 1º paciente se autoselecciona
   const [histError, setHistError] = useState("");
-
   const [form, setForm] = useState(emptyForm(""));
+  const [saving, setSaving] = useState(false);
 
-  // ======================
-  // Cargar pacientes (backend real)
-  // ======================
+  // ---------- Pacientes ----------
   useEffect(() => {
+    if (!hasToken) return;
     let ignore = false;
-
-    (async () => {
-      setLoading(true);
-      setError("");
-
-      try {
-        // Si no hay token, igual mostramos UI, pero avisamos
-        if (!hasToken) {
-          setPacientes([]);
-          setSelectedId(null);
-          setError("No hay token: podés ver la UI, pero no puedo traer pacientes del backend.");
-          return;
-        }
-
-        const list = await listarPacientes();
-        const arr = Array.isArray(list) ? list : [];
+    listarPacientes()
+      .then((list) => {
         if (ignore) return;
-
+        const arr = (Array.isArray(list) ? list : []).sort((a, b) =>
+          String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", { sensitivity: "base" })
+        );
         setPacientes(arr);
-        setSelectedId((prev) => (prev ?? arr[0]?.id ?? null));
-      } catch (e) {
-        console.error(e);
-        if (!ignore) {
-          setError(e?.message || "No se pudo cargar pacientes");
-          setPacientes([]);
-        }
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    })();
-
+        setSelectedId((prev) => prev ?? arr[0]?.id ?? null);
+      })
+      .catch((e) => !ignore && setError(e?.message || "No se pudieron cargar los pacientes."))
+      .finally(() => !ignore && setLoading(false));
     return () => {
       ignore = true;
     };
@@ -108,66 +80,58 @@ export default function PacientesHistorial() {
   );
 
   const filteredPacientes = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = normalize(search.trim());
     if (!q) return pacientes;
-
-    return pacientes.filter((p) => {
-      const nombre = String(p?.nombre || "").toLowerCase();
-      const dni = String(p?.dni || "");
-      const mail = String(p?.mail || "").toLowerCase();
-      return nombre.includes(q) || dni.includes(q) || mail.includes(q);
-    });
+    return pacientes.filter((p) => [p.nombre, p.dni, p.mail ?? p.email].some((v) => normalize(v).includes(q)));
   }, [pacientes, search]);
 
-  // ======================
-  // Cargar historias reales por paciente
-  // ======================
+  // ---------- Historias del paciente seleccionado ----------
+  function fetchHistorias(idPaciente) {
+    return listarHistoriasClinicasPaciente(idPaciente).then((data) =>
+      sortHistorias(Array.isArray(data) ? data : [])
+    );
+  }
+
+  function seleccionarPaciente(id) {
+    if (String(id) === String(selectedId)) return;
+    setSelectedId(id);
+    setHistorias([]);
+    setHistError("");
+    setForm(emptyForm(id));
+    setHistLoading(true);
+  }
+
   useEffect(() => {
+    if (!hasToken || !selectedPaciente?.id) return;
     let ignore = false;
-
-    (async () => {
-      if (!selectedPaciente?.id) {
-        setHistorias([]);
-        setForm(emptyForm(""));
-        return;
-      }
-
-      setHistLoading(true);
-      setHistError("");
-
-      try {
-        if (!hasToken) {
-          setHistorias([]);
-          setForm(emptyForm(selectedPaciente.id));
-          setHistError("No hay token: no puedo traer historias del backend.");
-          return;
-        }
-
-        const data = await listarHistoriasClinicasPaciente(selectedPaciente.id);
-        const arr = Array.isArray(data) ? data : [];
+    fetchHistorias(selectedPaciente.id)
+      .then((arr) => {
         if (ignore) return;
-
-        arr.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
         setHistorias(arr);
         setForm(emptyForm(selectedPaciente.id));
-      } catch (e) {
-        console.error(e);
-        if (!ignore) {
-          setHistError(e?.message || "No se pudo cargar historial clínico");
-          setHistorias([]);
-          setForm(emptyForm(selectedPaciente?.id));
-        }
-      } finally {
-        if (!ignore) setHistLoading(false);
-      }
-    })();
-
+      })
+      .catch((e) => !ignore && setHistError(e?.message || "No se pudo cargar el historial clínico."))
+      .finally(() => !ignore && setHistLoading(false));
     return () => {
       ignore = true;
     };
   }, [selectedPaciente?.id, hasToken]);
 
+  async function reloadHistorias() {
+    if (!selectedPaciente?.id) return;
+    setHistLoading(true);
+    try {
+      setHistorias(await fetchHistorias(selectedPaciente.id));
+      setHistError("");
+    } catch (e) {
+      setHistError(e?.message || "No se pudo recargar el historial clínico.");
+    } finally {
+      setHistLoading(false);
+    }
+  }
+
   const pickHistoria = (h) => {
+    setHistError("");
     setForm({
       id: h?.id ?? null,
       id_paciente: h?.id_paciente ?? selectedPaciente?.id ?? "",
@@ -180,46 +144,22 @@ export default function PacientesHistorial() {
     });
   };
 
-  const newHistoria = () => setForm(emptyForm(selectedPaciente?.id));
-
-  const reloadHistorias = async () => {
-    if (!selectedPaciente?.id) return;
-
-    setHistLoading(true);
+  const newHistoria = () => {
     setHistError("");
-
-    try {
-      if (!hasToken) {
-        setHistError("No hay token: no puedo recargar historias del backend.");
-        return;
-      }
-
-      const data = await listarHistoriasClinicasPaciente(selectedPaciente.id);
-      const arr = Array.isArray(data) ? data : [];
-      arr.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
-      setHistorias(arr);
-    } catch (e) {
-      console.error(e);
-      setHistError(e?.message || "No se pudo recargar historial clínico");
-    } finally {
-      setHistLoading(false);
-    }
+    setForm(emptyForm(selectedPaciente?.id));
   };
 
-  const save = async () => {
+  async function save(e) {
+    e.preventDefault();
     if (!selectedPaciente?.id) return;
 
-    // ✅ Si no hay token, no guardamos (pero UI funciona)
-    if (!hasToken) {
-      setHistError("No hay token: no se pueden guardar cambios.");
-      return;
-    }
-
-    // validaciones mínimas (según tu JSON)
-    if (!form.tratamiento?.trim()) return setHistError("Tratamiento es obligatorio");
-    if (!form.fecha_ini) return setHistError("Fecha de inicio es obligatoria");
+    if (!form.tratamiento?.trim()) return setHistError("El tratamiento es obligatorio.");
+    if (!form.fecha_ini) return setHistError("La fecha de inicio es obligatoria.");
+    if (form.fecha_fin && form.fecha_fin < form.fecha_ini)
+      return setHistError("La fecha de fin no puede ser anterior a la de inicio.");
 
     setHistError("");
+    setSaving(true);
     try {
       const payload = {
         id: form.id, // PUT requiere id
@@ -235,319 +175,308 @@ export default function PacientesHistorial() {
       if (form.id) await actualizarHistoriaClinica(payload);
       else await crearHistoriaClinica(payload);
 
+      toast.success(form.id ? "Historia clínica actualizada." : "Historia clínica creada.");
       await reloadHistorias();
       newHistoria();
-    } catch (e) {
-      console.error(e);
-      setHistError(e?.message || "No se pudo guardar");
+    } catch (e2) {
+      setHistError(e2?.message || "No se pudo guardar.");
+    } finally {
+      setSaving(false);
     }
-  };
+  }
 
-  const del = async () => {
+  async function del() {
     if (!form.id) return;
+    const ok = await confirm({
+      title: "¿Eliminar esta historia clínica?",
+      message: `Historia #${form.id} de ${selectedPaciente?.nombre || "este paciente"}. Esta acción no se puede deshacer.`,
+      confirmText: "Eliminar",
+      danger: true,
+    });
+    if (!ok) return;
 
-    if (!hasToken) {
-      setHistError("No hay token: no se puede eliminar.");
-      return;
-    }
-
-    if (!confirm("¿Eliminar esta historia clínica?")) return;
-
-    setHistError("");
     try {
       await borrarHistoriaClinica(form.id);
+      toast.success("Historia clínica eliminada.");
       await reloadHistorias();
       newHistoria();
     } catch (e) {
-      console.error(e);
-      setHistError(e?.message || "No se pudo eliminar");
+      toast.error(e?.message || "No se pudo eliminar.");
     }
-  };
+  }
 
-  const close = () => {
-    if (isPopup) window.close();
-    else window.location.href = "/agenda";
-  };
-
+  // ---------- Render ----------
   return (
-    <div className="page-wrap">
-      <main className="agenda-container" style={{ width: "100vw", maxWidth: "none" }}>
-        <div className="card hc-popup" style={{ padding: 14 }}>
-          {/* ✅ BANNER DEBUG (no bloquea UI) */}
-          <div
-            style={{
-              padding: 10,
-              borderRadius: 12,
-              border: "1px solid rgba(0,0,0,.08)",
-              background: hasToken ? "rgba(0,255,0,.06)" : "rgba(255,165,0,.08)",
-              marginBottom: 12,
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 10,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ fontWeight: 700, color: hasToken ? "green" : "orange" }}>
-              {hasToken
-                ? "Conectado: Historial clínico (backend OK)"
-                : "Sin token (modo UI): podés ver, pero no cargar/guardar"}
-            </div>
+    <div className="gt-page">
+      <PageHeader
+        title="Historial clínico"
+        subtitle="Elegí un paciente para ver y cargar sus historias clínicas"
+      />
 
-            <button type="button" className="btn-ghost" onClick={close}>
-              <span className="material-symbols-rounded" aria-hidden>close</span>
-              Cerrar
-            </button>
+      {!hasToken && (
+        <div style={{ marginBottom: 16 }}>
+          <Alert variant="warning">No hay sesión con el backend: no se pueden ver ni guardar historias.</Alert>
+        </div>
+      )}
+      {error && (
+        <div style={{ marginBottom: 16 }}>
+          <Alert variant="danger">{error}</Alert>
+        </div>
+      )}
+
+      <div className="hc-layout">
+        {/* Pacientes */}
+        <Card flush className="hc-patients">
+          <div className="hc-patients__search">
+            <div className="ui-input-icon">
+              <span className="material-symbols-rounded" aria-hidden>
+                search
+              </span>
+              <input
+                className="ui-input"
+                type="search"
+                placeholder="Buscar paciente…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="Buscar paciente"
+              />
+            </div>
+            <span className="ui-soft" style={{ fontSize: ".78rem" }}>
+              {loading ? "Cargando…" : `${filteredPacientes.length} de ${pacientes.length}`}
+            </span>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <div>
-              <h2 style={{ margin: 0 }}>Historial clínico</h2>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <button type="button" className="btn-ghost" onClick={reloadHistorias} disabled={histLoading}>
-                <span className="material-symbols-rounded" aria-hidden>refresh</span>
-                Recargar
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="error" style={{ marginTop: 12 }}>
-              <span className="material-symbols-rounded" aria-hidden>error</span>
-              {error}
-            </div>
-          )}
-
-          <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 12, marginTop: 14 }}>
-            {/* LISTA PACIENTES */}
-            <section className="card" style={{ padding: 12 }}>
-              <div className="form">
-                <label style={{ marginBottom: 10 }}>
-                  Buscar paciente
-                  <input
-                    placeholder="Nombre, DNI, mail..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </label>
-
-                <div className="muted">
-                  {loading ? "Cargando..." : `${filteredPacientes.length} / ${pacientes.length}`}
-                </div>
-              </div>
-
-              <div style={{ marginTop: 10, maxHeight: "65vh", overflow: "auto" }}>
-                <ul className="abm-list" style={{ margin: 0 }}>
-                  {filteredPacientes.map((p) => {
-                    const active = String(selectedId) === String(p.id);
-                    return (
-                      <li
-                        key={p.id}
-                        className="row"
-                        style={{
-                          cursor: "pointer",
-                          outline: active ? "2px solid rgba(38,132,254,.25)" : "none",
-                          borderRadius: 12,
-                        }}
-                        onClick={() => setSelectedId(p.id)}
-                        title="Ver historial"
+          <ul className="hc-patients__list" aria-label="Pacientes">
+            {loading
+              ? [1, 2, 3, 4, 5].map((i) => (
+                  <li key={i} className="hc-patient" aria-hidden>
+                    <span className="ui-skeleton" style={{ width: 34, height: 34, borderRadius: "50%" }} />
+                    <span className="ui-skeleton" style={{ flex: 1 }} />
+                  </li>
+                ))
+              : filteredPacientes.map((p) => {
+                  const active = String(selectedId) === String(p.id);
+                  return (
+                    <li key={p.id}>
+                      <button
+                        type="button"
+                        className={`hc-patient ${active ? "is-active" : ""}`}
+                        onClick={() => seleccionarPaciente(p.id)}
+                        aria-current={active || undefined}
                       >
-                        <div style={{ minWidth: 0 }}>
-                          <strong>{p.nombre}</strong>{" "}
-                          <span className="muted">· DNI {p.dni || "—"}</span>
-                          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                            {p.mail || "s/email"}
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            </section>
+                        <Avatar name={p.nombre} solid={active} />
+                        <span className="ui-person__text">
+                          <span className="ui-person__name">{p.nombre}</span>
+                          <span className="ui-person__sub">DNI {p.dni || "—"}</span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+            {!loading && filteredPacientes.length === 0 && (
+              <li className="ui-soft" style={{ padding: 16, textAlign: "center" }}>
+                Sin coincidencias
+              </li>
+            )}
+          </ul>
+        </Card>
 
-            {/* DETALLE + HISTORIAS */}
-            <section className="card" style={{ padding: 12 }}>
-              {!selectedPaciente ? (
-                <div className="muted">Seleccioná un paciente.</div>
-              ) : (
-                <>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                    <div>
-                      <h3 style={{ margin: 0 }}>{selectedPaciente.nombre}</h3>
-                      <div className="muted" style={{ marginTop: 4 }}>
-                        DNI {selectedPaciente.dni || "—"} · {selectedPaciente.mail || "s/email"} · Tel{" "}
+        {/* Detalle */}
+        <div className="hc-detail">
+          {!selectedPaciente ? (
+            <Card>
+              <EmptyState
+                icon="clinical_notes"
+                title="Elegí un paciente"
+                description="Seleccioná un paciente de la lista para ver su historial clínico."
+              />
+            </Card>
+          ) : (
+            <>
+              <Card>
+                <div className="hc-head">
+                  <Avatar name={selectedPaciente.nombre} size="lg" solid />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <h2 className="mt-patient__name">{selectedPaciente.nombre}</h2>
+                    <div className="mt-patient__meta">
+                      <span>
+                        <span className="material-symbols-rounded" aria-hidden>badge</span>
+                        DNI {selectedPaciente.dni || "—"}
+                      </span>
+                      <span>
+                        <span className="material-symbols-rounded" aria-hidden>call</span>
                         {selectedPaciente.celular || "—"}
-                      </div>
+                      </span>
+                      <span>
+                        <span className="material-symbols-rounded" aria-hidden>mail</span>
+                        {selectedPaciente.mail || selectedPaciente.email || "—"}
+                      </span>
                     </div>
-
-                    <button type="button" className="btn-ghost" onClick={newHistoria}>
-                      <span className="material-symbols-rounded" aria-hidden>add</span>
-                      Nueva
-                    </button>
                   </div>
+                  <Button variant="primary" icon="add" onClick={newHistoria}>
+                    Nueva historia
+                  </Button>
+                </div>
+              </Card>
 
-                  {histError && (
-                    <div className="error" style={{ marginTop: 12 }}>
-                      <span className="material-symbols-rounded" aria-hidden>error</span>
-                      {histError}
+              <div className="hc-grid">
+                <Card
+                  title="Historias"
+                  icon="history"
+                  flush
+                  actions={
+                    <>
+                      <Badge variant="primary">{histLoading ? "…" : historias.length}</Badge>
+                      <Button size="sm" variant="ghost" icon="refresh" onClick={reloadHistorias} disabled={histLoading}>
+                        Recargar
+                      </Button>
+                    </>
+                  }
+                >
+                  {histLoading ? (
+                    <div className="ui-stack" style={{ padding: 18 }}>
+                      {[80, 60, 70].map((w) => (
+                        <span key={w} className="ui-skeleton" style={{ width: `${w}%`, height: 14 }} />
+                      ))}
                     </div>
-                  )}
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 12, marginTop: 12 }}>
-                    {/* LISTA HISTORIAS */}
-                    <div className="card" style={{ padding: 12, background: "rgba(255,255,255,.65)" }}>
-                      <div className="muted" style={{ marginBottom: 8 }}>
-                        Historias clínicas ({histLoading ? "cargando..." : historias.length})
-                      </div>
-
-                      {historias.length === 0 ? (
-                        <div className="muted">No hay historias cargadas para este paciente.</div>
-                      ) : (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "52vh", overflow: "auto" }}>
-                          {historias.map((h) => (
+                  ) : historias.length === 0 ? (
+                    <EmptyState
+                      icon="note_add"
+                      title="Sin historias"
+                      description="Este paciente todavía no tiene historias clínicas. Cargá la primera con el formulario."
+                    />
+                  ) : (
+                    <ul className="hc-list">
+                      {historias.map((h) => {
+                        const active = String(form.id) === String(h.id);
+                        return (
+                          <li key={h.id}>
                             <button
-                              key={h.id}
                               type="button"
-                              className="btn-ghost"
+                              className={`hc-item ${active ? "is-active" : ""}`}
                               onClick={() => pickHistoria(h)}
-                              style={{
-                                textAlign: "left",
-                                padding: 10,
-                                borderRadius: 12,
-                                background:
-                                  String(form.id) === String(h.id)
-                                    ? "rgba(38,132,254,.10)"
-                                    : "rgba(255,255,255,.55)",
-                                border: "1px solid rgba(0,0,0,.06)",
-                              }}
-                              title="Editar esta historia"
+                              aria-current={active || undefined}
                             >
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                                <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {String(h.tratamiento || "—").slice(0, 30)}
-                                </strong>
-                                <span className="muted">#{h.id}</span>
-                              </div>
-                              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                                Sesiones: {h.cant_sesiones ?? 0} · {String(h.fecha_ini || "").slice(0, 10) || "—"} →{" "}
-                                {String(h.fecha_fin || "").slice(0, 10) || "—"}
-                              </div>
+                              <span className="hc-item__top">
+                                <strong>{h.tratamiento || "Sin tratamiento"}</strong>
+                                <span className="ui-soft">#{h.id}</span>
+                              </span>
+                              {h.diagnostico && <span className="hc-item__diag">{h.diagnostico}</span>}
+                              <span className="hc-item__meta">
+                                <Badge variant="neutral" icon="event">
+                                  {fmtFecha(h.fecha_ini) || "—"} → {fmtFecha(h.fecha_fin) || "en curso"}
+                                </Badge>
+                                <Badge variant="accent" icon="repeat">
+                                  {h.cant_sesiones ?? 0} sesiones
+                                </Badge>
+                              </span>
                             </button>
-                          ))}
-                        </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </Card>
+
+                <Card
+                  title={form.id ? `Editando historia #${form.id}` : "Nueva historia"}
+                  icon={form.id ? "edit_note" : "note_add"}
+                  actions={
+                    form.id && (
+                      <Button size="sm" variant="ghost" onClick={newHistoria}>
+                        Cancelar edición
+                      </Button>
+                    )
+                  }
+                >
+                  <form onSubmit={save} noValidate>
+                    <Field label="Tratamiento" required>
+                      <textarea
+                        className="ui-input"
+                        rows={2}
+                        value={form.tratamiento}
+                        onChange={(e) => setForm((s) => ({ ...s, tratamiento: e.target.value }))}
+                        placeholder="Ej: terapia manual, electroterapia, ejercicios…"
+                      />
+                    </Field>
+
+                    <Field label="Diagnóstico">
+                      <textarea
+                        className="ui-input"
+                        rows={3}
+                        value={form.diagnostico}
+                        onChange={(e) => setForm((s) => ({ ...s, diagnostico: e.target.value }))}
+                      />
+                    </Field>
+
+                    <div className="ui-row-3" style={{ marginTop: 14 }}>
+                      <Field label="Sesiones">
+                        <input
+                          className="ui-input"
+                          inputMode="numeric"
+                          value={form.cant_sesiones}
+                          placeholder="0"
+                          maxLength={2}
+                          onChange={(e) =>
+                            setForm((s) => ({
+                              ...s,
+                              cant_sesiones: String(e.target.value || "").replace(/\D/g, "").slice(0, 2),
+                            }))
+                          }
+                        />
+                      </Field>
+                      <Field label="Inicio" required>
+                        <input
+                          className="ui-input"
+                          type="date"
+                          value={form.fecha_ini}
+                          max={form.fecha_fin || undefined}
+                          onChange={(e) => setForm((s) => ({ ...s, fecha_ini: e.target.value }))}
+                        />
+                      </Field>
+                      <Field label="Fin">
+                        <input
+                          className="ui-input"
+                          type="date"
+                          value={form.fecha_fin}
+                          min={form.fecha_ini || undefined}
+                          onChange={(e) => setForm((s) => ({ ...s, fecha_fin: e.target.value }))}
+                        />
+                      </Field>
+                    </div>
+
+                    <Field label="Observaciones" className="hc-obs">
+                      <textarea
+                        className="ui-input"
+                        rows={3}
+                        value={form.observaciones}
+                        onChange={(e) => setForm((s) => ({ ...s, observaciones: e.target.value }))}
+                      />
+                    </Field>
+
+                    {histError && (
+                      <div style={{ marginTop: 14 }}>
+                        <Alert variant="danger">{histError}</Alert>
+                      </div>
+                    )}
+
+                    <div className="ui-inline" style={{ marginTop: 16 }}>
+                      <Button type="submit" variant="primary" icon="save" loading={saving} disabled={!hasToken}>
+                        {form.id ? "Guardar cambios" : "Crear historia"}
+                      </Button>
+                      {form.id && (
+                        <Button variant="ghost" icon="delete" onClick={del} disabled={saving} className="hc-del">
+                          Eliminar
+                        </Button>
                       )}
                     </div>
-
-                    {/* FORM (campos 1:1 con backend) */}
-                    <div className="card" style={{ padding: 12 }}>
-                      <div className="muted" style={{ marginBottom: 8 }}>
-                        {form.id ? `Editando historia #${form.id}` : "Nueva historia"}
-                      </div>
-
-                      <div className="form">
-                        <label>
-                          Tratamiento
-                          <textarea
-                            value={form.tratamiento}
-                            onChange={(e) => setForm((s) => ({ ...s, tratamiento: e.target.value }))}
-                            placeholder="Tratamiento... (ej: terapia manual, electroterapia, ejercicios, etc.)"
-                            style={{ minHeight: 70, resize: "vertical" }}
-                          />
-                        </label>
-
-                        <label>
-                          Diagnóstico
-                          <textarea
-                            value={form.diagnostico}
-                            onChange={(e) => setForm((s) => ({ ...s, diagnostico: e.target.value }))}
-                            placeholder="Diagnóstico..."
-                            style={{ minHeight: 80 }}
-                          />
-                        </label>
-
-                        {/* ✅ Sesiones + Inicio + Fin: NO se superponen */}
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "100px minmax(0,1fr) minmax(0,1fr)",
-                            gap: 10,
-                            alignItems: "end",
-                            marginTop: 6,
-                          }}
-                        >
-                          <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-                            Sesiones
-                            <input
-                              inputMode="numeric"
-                              value={form.cant_sesiones}
-                              placeholder="00"
-                              maxLength={2}
-                              style={{ width: "100%", boxSizing: "border-box" }}
-                              onChange={(e) => {
-                                const digits = String(e.target.value || "")
-                                  .replace(/\D/g, "")
-                                  .slice(0, 2);
-                                setForm((s) => ({ ...s, cant_sesiones: digits }));
-                              }}
-                            />
-                          </label>
-
-                          <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-                            Inicio
-                            <input
-                              type="date"
-                              value={form.fecha_ini}
-                              style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
-                              onChange={(e) => setForm((s) => ({ ...s, fecha_ini: e.target.value }))}
-                            />
-                          </label>
-
-                          <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-                            Fin
-                            <input
-                              type="date"
-                              value={form.fecha_fin}
-                              style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
-                              onChange={(e) => setForm((s) => ({ ...s, fecha_fin: e.target.value }))}
-                            />
-                          </label>
-                        </div>
-
-                        <label style={{ marginTop: 10 }}>
-                          Observaciones
-                          <textarea
-                            value={form.observaciones}
-                            onChange={(e) => setForm((s) => ({ ...s, observaciones: e.target.value }))}
-                            placeholder="Observaciones..."
-                            style={{ minHeight: 90 }}
-                          />
-                        </label>
-
-                        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-                          <button type="button" className="primary" onClick={save}>
-                            <span className="material-symbols-rounded" aria-hidden>save</span>
-                            Guardar
-                          </button>
-
-                          {form.id ? (
-                            <button type="button" className="btn-ghost" onClick={del}>
-                              <span className="material-symbols-rounded" aria-hidden>delete</span>
-                              Eliminar
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </section>
-          </div>
+                  </form>
+                </Card>
+              </div>
+            </>
+          )}
         </div>
-      </main>
+      </div>
     </div>
   );
 }

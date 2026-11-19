@@ -1,11 +1,31 @@
 // src/pages/MisTurnos.jsx
-import { useEffect, useState } from "react";
-import Header from "../ui/Header.jsx";
-import Footer from "../ui/Footer.jsx";
+// Vista del paciente: sus datos y los turnos de los próximos 7 días.
+import { useEffect, useMemo, useState } from "react";
 import { readSession } from "../utils/jwt.js";
-
 import { fetchTurnosClientePorFecha } from "../api/turnosBackend.js";
 import { traerPaciente } from "../api/abmBackend.js";
+import { Avatar, Badge, Card, EmptyState, PageHeader } from "../components/ui/Display.jsx";
+
+const STATUS = {
+  pendiente: { label: "Pendiente", variant: "warning" },
+  confirmado: { label: "Confirmado", variant: "primary" },
+  finalizado: { label: "Finalizado", variant: "success" },
+  cancelado: { label: "Cancelado", variant: "danger" },
+};
+const DOW = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const MON = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+function parseYMD(ymd) {
+  const m = String(ymd || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+
+/** "HH:MM" del turno (usa la hora real si viene; si no, la hora entera) */
+function turnoHora(t) {
+  const raw = String(t?.raw?.horaIni || t?.raw?.hora_inicio || "");
+  if (/^\d{1,2}:\d{2}/.test(raw)) return raw.slice(0, 5).padStart(5, "0");
+  return `${String(Math.floor(Number(t?.hour) || 0)).padStart(2, "0")}:00`;
+}
 
 export default function MisTurnos() {
   const [items, setItems] = useState([]);
@@ -13,36 +33,28 @@ export default function MisTurnos() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const payload = readSession()?.payload;
+    const pacienteId = payload?.idPaciente || payload?.id || null;
+    if (!pacienteId) {
+      window.location.href = "/login";
+      return;
+    }
+
     (async () => {
-      const sess = readSession();
-      const payload = sess?.payload;
-
-      const pacienteId = payload?.idPaciente || payload?.id || null;
-
-      if (!pacienteId) {
-        window.location.href = "/login";
-        return;
-      }
-
       try {
-        setLoading(true);
-
+        // Los 7 días en paralelo (antes eran 7 requests en serie)
         const today = new Date();
         const days = Array.from({ length: 7 }, (_, i) => {
           const d = new Date(today);
           d.setDate(d.getDate() + i);
           return d;
         });
-
+        const results = await Promise.allSettled(days.map((d) => fetchTurnosClientePorFecha(pacienteId, d)));
         const allTurnos = [];
-        for (const d of days) {
-          try {
-            const t = await fetchTurnosClientePorFecha(pacienteId, d);
-            allTurnos.push(...t);
-          } catch (err) {
-            console.error("Error obteniendo turnos del cliente para fecha", d, err);
-          }
-        }
+        results.forEach((r, i) => {
+          if (r.status === "fulfilled") allTurnos.push(...r.value);
+          else console.error("Error obteniendo turnos del cliente para fecha", days[i], r.reason);
+        });
         setItems(allTurnos);
 
         try {
@@ -66,110 +78,117 @@ export default function MisTurnos() {
     })();
   }, []);
 
-  const logout = () => {
-    sessionStorage.removeItem("gt_backend_token");
-    window.location.href = "/login";
-  };
-
-  const formatStatus = (status) => {
-    const statusMap = {
-      pendiente: { label: "Pendiente", color: "#cdd7ec" },
-      confirmado: { label: "Confirmado", color: "#2684fe" },
-      finalizado: { label: "Finalizado", color: "#7ef7bf" },
-      cancelado: { label: "Cancelado", color: "#ff8e8e" },
-    };
-    return statusMap[status] || { label: status, color: "#dfe6f2" };
-  };
+  const proximos = useMemo(
+    () =>
+      [...items].sort(
+        (a, b) => String(a.date).localeCompare(String(b.date)) || turnoHora(a).localeCompare(turnoHora(b))
+      ),
+    [items]
+  );
 
   return (
-    <div className="page-wrap">
-      <Header doctorName="Mis Turnos" onLogout={logout} />
+    <div className="gt-page gt-page--narrow">
+      <PageHeader
+        title={patient?.name ? `Hola, ${patient.name.split(" ")[0]}` : "Mis turnos"}
+        subtitle="Tus turnos de los próximos 7 días"
+      />
 
-      <main className="agenda-container agenda-misturnos">
-        {loading ? (
-          <div className="card" style={{ padding: "20px" }}>Cargando tus turnos...</div>
-        ) : (
-          <>
-            {patient && (
-              <div className="card" style={{ padding: "20px", marginBottom: "20px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
-                  <div className="avatar" style={{ width: "60px", height: "60px", fontSize: "24px" }}>
-                    {(patient.name || "P")[0]}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <h2 style={{ margin: "0 0 4px" }}>{patient.name}</h2>
-                    <p className="muted" style={{ margin: 0 }}>
-                      DNI: {patient.dni} · Tel: {patient.phone || "—"} · Email: {patient.mail || "—"}
-                    </p>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-                    gap: "12px",
-                    padding: "16px",
-                    background: "#f8fbff",
-                    borderRadius: "10px",
-                    border: "1px solid #e8eef9",
-                  }}
-                >
-                  <div>
-                    <strong style={{ display: "block", marginBottom: "4px", fontSize: ".9rem", color: "#5b7290" }}>
-                      Obra Social
-                    </strong>
-                    <span>{patient.os || "Sin obra social"}</span>
-                  </div>
-                  <div>
-                    <strong style={{ display: "block", marginBottom: "4px", fontSize: ".9rem", color: "#5b7290" }}>
-                      Grupo Sanguíneo
-                    </strong>
-                    <span>{patient.blood || "—"}</span>
-                  </div>
-                  <div>
-                    <strong style={{ display: "block", marginBottom: "4px", fontSize: ".9rem", color: "#5b7290" }}>
-                      Alergias
-                    </strong>
-                    <span>{patient.allergies || "Sin alergias registradas"}</span>
+      {loading ? (
+        <Card>
+          <div className="ui-stack" aria-busy="true" aria-label="Cargando tus turnos">
+            {[70, 45, 60].map((w) => (
+              <span key={w} className="ui-skeleton" style={{ width: `${w}%`, height: 16 }} />
+            ))}
+          </div>
+        </Card>
+      ) : (
+        <div className="ui-stack">
+          {patient && (
+            <Card>
+              <div className="mt-patient">
+                <Avatar name={patient.name} size="lg" solid />
+                <div className="mt-patient__info">
+                  <h2 className="mt-patient__name">{patient.name}</h2>
+                  <div className="mt-patient__meta">
+                    <span>
+                      <span className="material-symbols-rounded" aria-hidden>badge</span>
+                      DNI {patient.dni || "—"}
+                    </span>
+                    <span>
+                      <span className="material-symbols-rounded" aria-hidden>call</span>
+                      {patient.phone || "—"}
+                    </span>
+                    <span>
+                      <span className="material-symbols-rounded" aria-hidden>mail</span>
+                      {patient.mail || "—"}
+                    </span>
                   </div>
                 </div>
               </div>
-            )}
-
-            <div className="card" style={{ padding: "20px" }}>
-              <h2 style={{ margin: "0 0 16px" }}>Mis Turnos</h2>
-
-              {items.length === 0 ? (
-                <div style={{ padding: "20px", textAlign: "center", background: "#f8fbff", borderRadius: "10px" }}>
-                  No tenés turnos próximos.
+              <dl className="mt-facts">
+                <div>
+                  <dt>Obra social</dt>
+                  <dd>{patient.os || "Sin obra social"}</dd>
                 </div>
-              ) : (
-                <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
-                  {items.map((t) => {
-                    const st = formatStatus(t.status);
-                    return (
-                      <li key={t.id} style={{ border: "1px solid #e8eef9", borderRadius: "12px", padding: "14px", background: "#fff" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                          <div>
-                            <strong>{t.date}</strong> · {String(t.hour).padStart(2, "0")}:00
-                            <div className="muted" style={{ marginTop: 4 }}>{t.treatment || "Sesión"}</div>
-                          </div>
-                          <span style={{ padding: "6px 10px", borderRadius: 999, background: st.color, fontWeight: 600, fontSize: ".85rem" }}>
-                            {st.label}
-                          </span>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </>
-        )}
-      </main>
+                <div>
+                  <dt>Grupo sanguíneo</dt>
+                  <dd>{patient.blood || "—"}</dd>
+                </div>
+                <div>
+                  <dt>Alergias</dt>
+                  <dd>{patient.allergies || "Sin alergias registradas"}</dd>
+                </div>
+              </dl>
+            </Card>
+          )}
 
-      <Footer />
+          <Card
+            title="Próximos turnos"
+            icon="event_available"
+            flush
+            actions={proximos.length > 0 && <Badge variant="primary">{proximos.length}</Badge>}
+          >
+            {proximos.length === 0 ? (
+              <EmptyState
+                icon="event_busy"
+                title="No tenés turnos próximos"
+                description="Cuando se te asigne un turno lo vas a ver acá."
+              />
+            ) : (
+              <ul className="mt-list">
+                {proximos.map((t) => {
+                  const st = STATUS[t.status] || { label: t.status || "Pendiente", variant: "neutral" };
+                  const d = parseYMD(t.date);
+                  return (
+                    <li
+                      key={`${t.id}-${t.date}`}
+                      className={`mt-item ${t.status === "cancelado" ? "is-cancelled" : ""}`}
+                    >
+                      <div className="mt-date" aria-hidden>
+                        <span className="mt-date__dow">{d ? DOW[d.getDay()] : ""}</span>
+                        <span className="mt-date__day">{d ? d.getDate() : "?"}</span>
+                        <span className="mt-date__mon">{d ? MON[d.getMonth()] : ""}</span>
+                      </div>
+                      <div className="mt-item__body">
+                        <strong>{t.treatment || "Sesión"}</strong>
+                        <span className="ui-muted">
+                          <span className="material-symbols-rounded" aria-hidden>schedule</span>
+                          {d
+                            ? d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })
+                            : t.date}
+                          {` · ${turnoHora(t)} hs`}
+                          {t.doctorName ? ` · ${t.doctorName}` : ""}
+                        </span>
+                      </div>
+                      <Badge variant={st.variant}>{st.label}</Badge>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
