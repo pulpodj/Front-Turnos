@@ -133,7 +133,7 @@ export default function AppLayout() {
         </nav>
 
         <div className="gt-sidebar__footer gt-sidebar__text">
-          v2.0 · © {new Date().getFullYear()} Pulpo Net Computación
+          v{import.meta.env.VITE_APP_VERSION} · © {new Date().getFullYear()} Pulpo Net Computación
         </div>
       </aside>
 
