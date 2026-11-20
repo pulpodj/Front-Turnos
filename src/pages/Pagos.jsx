@@ -11,8 +11,11 @@ import {
   mapMovimientoToForm,
   searchMovimientos,
   listarMovimientoTipos,
+  listarMovimientoOrigenes,
+  METODOS_PAGO_DEFAULT,
   toYMD,
 } from "../api/movimientosBackend.js";
+import MetodosPagoModal from "../ui/MetodosPagoModal.jsx";
 import Modal from "../components/ui/Modal.jsx";
 import Button, { IconButton } from "../components/ui/Button.jsx";
 import {
@@ -41,7 +44,14 @@ import { useConfirm, useToast } from "../components/ui/feedback.js";
  * cronológico), ambas inclusivas, sin pasar por Date para evitar corrimientos
  * por zona horaria.
  */
-async function fetchMovimientosFiltrados({ idPaciente, tipos = [], desde = "", hasta = "" }) {
+async function fetchMovimientosFiltrados({
+  idPaciente,
+  tipos = [],
+  desde = "",
+  hasta = "",
+  metodo = "", // nombre del método de pago ("" = todos)
+  idOrigen, // id del método en el backend, si se conoce
+}) {
   const tiposToFetch = tipos.length ? tipos : [null];
   const fetched = [];
 
@@ -51,6 +61,7 @@ async function fetchMovimientosFiltrados({ idPaciente, tipos = [], desde = "", h
       ...(hasta ? { fecha_hasta: hasta } : {}),
       ...(idPaciente !== undefined ? { id_cliente: idPaciente } : {}),
       ...(t !== null ? { id_movimiento_tipo: t } : {}),
+      ...(idOrigen ? { id_movimiento_origen: idOrigen } : {}),
     });
     const list = Array.isArray(data)
       ? data
@@ -77,6 +88,12 @@ async function fetchMovimientosFiltrados({ idPaciente, tipos = [], desde = "", h
         String(m?.id_cliente ?? m?.id_paciente ?? "") === String(idPaciente)
     )
     .filter((m) => !tiposStr.length || tiposStr.includes(String(m?.id_movimiento_tipo)))
+    .filter((m) => {
+      if (!metodo) return true;
+      // por id del backend o, en movimientos viejos, por la etiqueta [METODO: …]
+      if (idOrigen && String(m?.id_movimiento_origen ?? "") === String(idOrigen)) return true;
+      return splitObs(m?.observaciones).metodo.trim().toLowerCase() === metodo.trim().toLowerCase();
+    })
     .filter((m) => {
       if (!desde && !hasta) return true;
       const f = toYMD(m?.fecha);
@@ -135,17 +152,46 @@ function toMoneyInput(n) {
   return v.toLocaleString("es-AR", { maximumFractionDigits: 2 });
 }
 
-/** Observación guardada como "[SESION: 7] texto" <-> { sesion, obs } */
-function buildObs({ sesion, obs }) {
-  const cleanObs = String(obs || "").trim();
+/**
+ * Sesión y método de pago se guardan además como etiquetas al inicio de las
+ * observaciones (respaldo legible si el backend no devuelve id_movimiento_origen).
+ *   "[SESION: 7] [METODO: Efectivo] texto" <-> { sesion, metodo, obs }
+ */
+function buildObs({ sesion, metodo, obs }) {
+  const tags = [];
   const s = String(sesion || "").trim();
-  if (!s) return cleanObs;
-  return `[SESION: ${s}]${cleanObs ? " " + cleanObs : ""}`.trim();
+  const mp = String(metodo || "").trim();
+  if (s) tags.push(`[SESION: ${s}]`);
+  if (mp) tags.push(`[METODO: ${mp}]`);
+  return [...tags, String(obs || "").trim()].filter(Boolean).join(" ");
 }
 function splitObs(raw) {
-  const m = String(raw || "").match(/^\[SESION:\s*([^\]]*)\]\s*/);
-  if (!m) return { sesion: "", obs: String(raw || "") };
-  return { sesion: m[1].trim(), obs: String(raw).slice(m[0].length) };
+  let rest = String(raw || "");
+  const out = { sesion: "", metodo: "", obs: "" };
+  // Las etiquetas van al principio, en cualquier orden
+  for (;;) {
+    const m = rest.match(/^\s*\[(SESION|METODO):\s*([^\]]*)\]\s*/i);
+    if (!m) break;
+    out[m[1].toUpperCase() === "SESION" ? "sesion" : "metodo"] = m[2].trim();
+    rest = rest.slice(m[0].length);
+  }
+  out.obs = rest.trim();
+  return out;
+}
+
+/** Un movimiento es del Haber si tiene importe en haber y no en debe. */
+const esHaber = (m) => (Number(m?.haber) || 0) > 0 && !((Number(m?.debe) || 0) > 0);
+
+/**
+ * Tipos de movimiento del Haber: los que dicen "Pago" o "Saldo inicial".
+ * El resto (tratamientos) son del Debe.
+ */
+function tipoEsHaber(nombre) {
+  const n = String(nombre || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "") // sin tildes
+    .toLowerCase();
+  return n.includes("pago") || n.includes("saldo inicial");
 }
 
 const escHtml = (v) =>
@@ -153,11 +199,23 @@ const escHtml = (v) =>
 
 function toCsv(rows) {
   const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
-  const headers = ["id", "fecha", "paciente", "tipo", "debe", "haber", "saldo", "observaciones"];
+  const headers = ["id", "fecha", "paciente", "columna", "tipo", "metodo_pago", "sesion", "debe", "haber", "saldo", "observaciones"];
   const lines = [headers.map(esc).join(",")];
   for (const r of rows) {
     lines.push(
-      [r.id, toYMD(r.fecha), r.pacienteNombre, r.tipoNombre, r.debe, r.haber, r.saldo, r.observaciones]
+      [
+        r.id,
+        toYMD(r.fecha),
+        r.pacienteNombre,
+        r.esHaber ? "Haber" : "Debe",
+        r.tipoNombre,
+        r.metodo,
+        r.sesion,
+        r.debe,
+        r.haber,
+        r.saldo,
+        r.obs,
+      ]
         .map(esc)
         .join(",")
     );
@@ -166,10 +224,96 @@ function toCsv(rows) {
 }
 
 /* =========================================================
+   Tabla de movimientos (una para Debe y otra para Haber)
+   ========================================================= */
+
+function MovimientosTabla({ kind, title, icon, rows, total, loading, onEdit, onDelete }) {
+  const isHaber = kind === "haber";
+  return (
+    <Card
+      title={title}
+      icon={icon}
+      flush
+      actions={
+        !loading && (
+          <>
+            <Badge variant="neutral">{rows.length} mov.</Badge>
+            <Badge variant={isHaber ? "success" : "danger"}>Total {fmtMoney(total)}</Badge>
+          </>
+        )
+      }
+    >
+      {!loading && rows.length === 0 ? (
+        <div className="ui-soft" style={{ padding: "14px 18px" }}>
+          {isHaber ? "No hay pagos con estos filtros." : "No hay cargos con estos filtros."}
+        </div>
+      ) : (
+        <div className="ui-table-wrap">
+          <table className="ui-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Paciente</th>
+                {isHaber && <th>Metodo de pago</th>}
+                <th>Tipo</th>
+                {!isHaber && <th>Sesión</th>}
+                <th className="num">{isHaber ? "Haber" : "Debe"}</th>
+                <th>Observaciones</th>
+                <th className="actions" aria-label="Acciones" />
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <SkeletonRows rows={3} cols={7} />
+              ) : (
+                rows.map((m) => (
+                  <tr key={m.id} className="is-clickable" onClick={() => onEdit(m)}>
+                    <td className="nowrap">
+                      {fmtFecha(m.fecha)}
+                      <div className="ui-soft" style={{ fontSize: ".75rem" }}>
+                        #{m.id}
+                      </div>
+                    </td>
+                    <td>{m.pacienteNombre || <span className="ui-soft">—</span>}</td>
+                    {isHaber && (
+                      <td>
+                        {m.metodo ? (
+                          <Badge variant="primary">{m.metodo}</Badge>
+                        ) : (
+                          <span className="ui-soft">Sin especificar</span>
+                        )}
+                      </td>
+                    )}
+                    <td>
+                      <Badge variant="neutral">{m.tipoNombre}</Badge>
+                    </td>
+                    {!isHaber && <td>{m.sesion || <span className="ui-soft">—</span>}</td>}
+                    <td className={`num ${isHaber ? "ui-money-neg" : "ui-money-pos"}`}>
+                      {fmtMoney(isHaber ? m.haber : m.debe)}
+                    </td>
+                    <td className="truncate" title={m.obs || ""}>
+                      {m.obs || <span className="ui-soft">—</span>}
+                    </td>
+                    <td className="actions" onClick={(e) => e.stopPropagation()}>
+                      <IconButton icon="edit" label="Editar" onClick={() => onEdit(m)} />
+                      <IconButton icon="delete" label="Eliminar" danger onClick={() => onDelete(m)} />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* =========================================================
    Página
    ========================================================= */
 
-const EMPTY_EDITOR = { kind: "debe", importe: "", sesion: "", obs: "" };
+const EMPTY_EDITOR = { kind: "debe", importe: "", sesion: "", metodo: "", obs: "" };
 
 export default function Pagos() {
   const useBackend = !!getBackendToken();
@@ -179,6 +323,11 @@ export default function Pagos() {
   // Datos base
   const [pacientes, setPacientes] = useState([]);
   const [movimientoTipos, setMovimientoTipos] = useState([]);
+  // Métodos de pago = orígenes de movimiento del backend.
+  // origenesApi: null = cargando, true = API ok, false = API no disponible (se usa la lista fija)
+  const [origenes, setOrigenes] = useState([]);
+  const [origenesApi, setOrigenesApi] = useState(null);
+  const [openMetodos, setOpenMetodos] = useState(false);
 
   // Filtros (vacío = sin filtro)
   const [pacienteId, setPacienteId] = useState("");
@@ -186,6 +335,7 @@ export default function Pagos() {
   const [hasta, setHasta] = useState("");
   const [tiposSeleccionados, setTiposSeleccionados] = useState([]);
   const [openTipos, setOpenTipos] = useState(false);
+  const [metodoFiltro, setMetodoFiltro] = useState(""); // nombre del método de pago
 
   // Resultados
   const [loading, setLoading] = useState(false);
@@ -214,6 +364,26 @@ export default function Pagos() {
     () => Object.fromEntries(movimientoTipos.map((t) => [String(t.id), t.tipo])),
     [movimientoTipos]
   );
+  const origenPorId = useMemo(
+    () => Object.fromEntries(origenes.map((o) => [String(o.id), o.tipo])),
+    [origenes]
+  );
+
+  async function cargarOrigenes() {
+    try {
+      const list = await listarMovimientoOrigenes();
+      setOrigenes(
+        list
+          .filter((o) => !o?.baja)
+          .sort((a, b) => String(a.tipo || "").localeCompare(String(b.tipo || "")))
+      );
+      setOrigenesApi(true);
+    } catch (e) {
+      console.warn("[Pagos] API de métodos de pago no disponible, se usa la lista fija:", e?.message);
+      setOrigenes([]);
+      setOrigenesApi(false);
+    }
+  }
 
   useEffect(() => {
     if (!useBackend) return;
@@ -229,6 +399,7 @@ export default function Pagos() {
       );
       // no mostrar tipos dados de baja
       setMovimientoTipos((Array.isArray(listTipos) ? listTipos : []).filter((t) => !t?.baja));
+      await cargarOrigenes();
     })();
   }, [useBackend]);
 
@@ -250,6 +421,7 @@ export default function Pagos() {
         tipos: tiposSeleccionados,
         desde,
         hasta,
+        ...filtroMetodoParams(),
       });
       setMovimientos(list);
     } catch (e2) {
@@ -265,24 +437,32 @@ export default function Pagos() {
     setDesde("");
     setHasta("");
     setTiposSeleccionados([]);
+    setMetodoFiltro("");
     setSaldoTotal(null);
     setErr("");
   }
 
-  const hasFilters = !!(pacienteId || desde || hasta || tiposSeleccionados.length);
+  const hasFilters = !!(pacienteId || desde || hasta || tiposSeleccionados.length || metodoFiltro);
 
-  // El saldo total depende de paciente/tipos: se guarda con esa "clave"
+  function filtroMetodoParams() {
+    if (!metodoFiltro) return {};
+    const o = origenes.find((x) => String(x.tipo).trim().toLowerCase() === metodoFiltro.trim().toLowerCase());
+    return { metodo: metodoFiltro, idOrigen: o ? Number(o.id) : undefined };
+  }
+
+  // El saldo total depende de paciente/tipos/método: se guarda con esa "clave"
   // y deja de mostrarse si los filtros cambian.
-  const saldoKey = `${pacienteId}|${tiposSeleccionados.join(",")}`;
+  const saldoKey = `${pacienteId}|${tiposSeleccionados.join(",")}|${metodoFiltro}`;
   const saldoTotalVigente = saldoTotal?.key === saldoKey ? saldoTotal : null;
 
   async function calcularSaldoTotal() {
     setSaldoTotalLoading(true);
     try {
-      // mismos filtros de paciente/tipo, SIN rango de fechas
+      // mismos filtros de paciente/tipo/método, SIN rango de fechas
       const list = await fetchMovimientosFiltrados({
         idPaciente: pacienteId ? Number(pacienteId) : undefined,
         tipos: tiposSeleccionados,
+        ...filtroMetodoParams(),
       });
       setSaldoTotal({ ...sumTotals(list), key: saldoKey });
     } catch (e) {
@@ -296,38 +476,53 @@ export default function Pagos() {
 
   const rows = useMemo(
     () =>
-      movimientos.map((m) => ({
-        ...m,
-        pacienteNombre:
-          pacPorId[String(m?.id_cliente ?? m?.id_paciente)] ||
-          m?.paciente_nombre ||
-          m?.cliente_nombre ||
-          "",
-        tipoNombre: tipoPorId[String(m.id_movimiento_tipo)] || m.id_movimiento_tipo,
-      })),
-    [movimientos, pacPorId, tipoPorId]
+      movimientos.map((m) => {
+        const tags = splitObs(m.observaciones); // sesion, metodo, obs (texto sin etiquetas)
+        return {
+          ...m,
+          ...tags,
+          // el método del backend (id_movimiento_origen) manda; si no viene, el de la etiqueta
+          metodo: origenPorId[String(m?.id_movimiento_origen ?? "")] || tags.metodo,
+          esHaber: esHaber(m),
+          pacienteNombre:
+            pacPorId[String(m?.id_cliente ?? m?.id_paciente)] ||
+            m?.paciente_nombre ||
+            m?.cliente_nombre ||
+            "",
+          tipoNombre: tipoPorId[String(m.id_movimiento_tipo)] || m.id_movimiento_tipo,
+        };
+      }),
+    [movimientos, pacPorId, tipoPorId, origenPorId]
   );
+  const rowsDebe = useMemo(() => rows.filter((r) => !r.esHaber), [rows]);
+  const rowsHaber = useMemo(() => rows.filter((r) => r.esHaber), [rows]);
 
   // ---------- Editor ----------
-  function abrirNuevo() {
+  function abrirNuevo(kind) {
     const base = emptyMovimientoForm();
     base.id_cliente = pacienteId || "";
-    base.id_movimiento_tipo = tiposSeleccionados.length === 1 ? tiposSeleccionados[0] : "";
+    // precargar el tipo filtrado solo si corresponde a esta columna (Debe / Haber)
+    const unico = tiposSeleccionados.length === 1 ? tiposSeleccionados[0] : "";
+    base.id_movimiento_tipo =
+      unico && tipoEsHaber(tipoPorId[String(unico)]) === (kind === "haber") ? unico : "";
     setForm(base);
-    setEditor(EMPTY_EDITOR);
+    setEditor({ ...EMPTY_EDITOR, kind });
     setEditorErr("");
     setEditorOpen(true);
   }
 
   function abrirEditar(m) {
     const f = mapMovimientoToForm(m);
-    const { sesion, obs } = splitObs(f.observaciones);
-    const esDebe = (Number(f.debe) || 0) > 0 || !(Number(f.haber) > 0);
+    const tags = splitObs(f.observaciones);
+    const { sesion, obs } = tags;
+    const metodo = origenPorId[String(f.id_movimiento_origen ?? "")] || tags.metodo;
+    const haber = esHaber(f);
     setForm(f);
     setEditor({
-      kind: esDebe ? "debe" : "haber",
-      importe: toMoneyInput(esDebe ? f.debe : f.haber),
+      kind: haber ? "haber" : "debe",
+      importe: toMoneyInput(haber ? f.haber : f.debe),
       sesion,
+      metodo,
       obs,
     });
     setEditorErr("");
@@ -342,6 +537,10 @@ export default function Pagos() {
       setEditorErr("Completá paciente, fecha y tipo de movimiento.");
       return;
     }
+    if (editor.kind === "haber" && !editor.metodo) {
+      setEditorErr("Elegí el método de pago.");
+      return;
+    }
     const importe = normalizeMoney(editor.importe);
     if (importe === "" || !Number.isFinite(importe) || importe <= 0) {
       setEditorErr("Ingresá un importe válido mayor a 0 (ej: 15.000,50).");
@@ -351,14 +550,26 @@ export default function Pagos() {
     const debe = editor.kind === "debe" ? importe : 0;
     const haber = editor.kind === "haber" ? importe : 0;
 
+    // método de pago -> id del origen en el backend (null si la API no está o no aplica)
+    const origen =
+      editor.kind === "haber"
+        ? origenes.find((o) => String(o.tipo).trim().toLowerCase() === editor.metodo.trim().toLowerCase())
+        : null;
+
     const payload = {
       ...form,
+      id_movimiento_origen: origen ? Number(origen.id) : 0, // 0 = sin método (default del backend)
       id_cliente: Number(form.id_cliente), // backend usa id_cliente
       id_movimiento_tipo: Number(form.id_movimiento_tipo),
       debe,
       haber,
       saldo: debe - haber,
-      observaciones: buildObs({ sesion: editor.sesion, obs: editor.obs }),
+      observaciones: buildObs({
+        sesion: editor.sesion,
+        // el método de pago solo aplica al Haber
+        metodo: editor.kind === "haber" ? editor.metodo : "",
+        obs: editor.obs,
+      }),
       fecha_vencimiento: form.fecha_vencimiento || form.fecha,
     };
 
@@ -368,7 +579,9 @@ export default function Pagos() {
       else await crearMovimiento(payload);
 
       setEditorOpen(false);
-      toast.success(isEdit ? "Movimiento actualizado." : "Movimiento registrado.");
+      toast.success(
+        isEdit ? "Movimiento actualizado." : editor.kind === "haber" ? "Pago registrado." : "Cargo registrado."
+      );
       await buscar();
     } catch (e2) {
       setEditorErr(e2.message || "No se pudo guardar.");
@@ -425,11 +638,32 @@ export default function Pagos() {
       .filter(Boolean)
       .join(" · ");
 
+    const seccion = (titulo, list, extraTh, extraTd, campo) => `
+        <h3>${escHtml(titulo)}</h3>
+        ${
+          !list.length
+            ? '<div class="muted">Sin movimientos.</div>'
+            : `<table><thead><tr>
+          <th>#</th><th>Fecha</th><th>Paciente</th>${extraTh}
+          <th class="num">Importe</th><th>Observaciones</th>
+        </tr></thead><tbody>
+        ${list
+          .map(
+            (r) => `<tr>
+              <td>${escHtml(r.id)}</td><td>${escHtml(fmtFecha(r.fecha))}</td>
+              <td>${escHtml(r.pacienteNombre)}</td>${extraTd(r)}
+              <td class="num">${fmtMoney(r[campo])}</td><td>${escHtml(r.obs)}</td>
+            </tr>`
+          )
+          .join("")}
+        </tbody></table>`
+        }`;
+
     win.document.write(`
       <html><head><title>Movimientos</title>
       <style>
         body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:16px;color:#1b2a3d}
-        h2{margin:0 0 4px} .muted{color:#5b7290;font-size:12px;margin-bottom:12px}
+        h2{margin:0 0 4px} h3{margin:18px 0 0;font-size:14px} .muted{color:#5b7290;font-size:12px;margin-bottom:12px}
         table{width:100%;border-collapse:collapse;margin-top:12px}
         th,td{border-bottom:1px solid #dce6f3;padding:6px 8px;font-size:12px;text-align:left}
         th{background:#f3f7fd;text-transform:uppercase;font-size:10px;letter-spacing:.05em;color:#5b7290}
@@ -438,22 +672,20 @@ export default function Pagos() {
       </style></head><body>
         <h2>Movimientos</h2>
         <div class="muted">${escHtml(filtroTxt)}</div>
-        <table><thead><tr>
-          <th>#</th><th>Fecha</th><th>Paciente</th><th>Tipo</th>
-          <th class="num">Debe</th><th class="num">Haber</th><th class="num">Saldo</th><th>Observaciones</th>
-        </tr></thead><tbody>
-        ${rows
-          .map(
-            (r) => `<tr>
-              <td>${escHtml(r.id)}</td><td>${escHtml(fmtFecha(r.fecha))}</td>
-              <td>${escHtml(r.pacienteNombre)}</td><td>${escHtml(r.tipoNombre)}</td>
-              <td class="num">${Number(r.debe) ? fmtMoney(r.debe) : ""}</td>
-              <td class="num">${Number(r.haber) ? fmtMoney(r.haber) : ""}</td>
-              <td class="num">${fmtMoney(r.saldo)}</td><td>${escHtml(r.observaciones)}</td>
-            </tr>`
-          )
-          .join("")}
-        </tbody></table>
+        ${seccion(
+          "Debe (cargos)",
+          rowsDebe,
+          "<th>Tipo</th><th>Sesión</th>",
+          (r) => `<td>${escHtml(r.tipoNombre)}</td><td>${escHtml(r.sesion)}</td>`,
+          "debe"
+        )}
+        ${seccion(
+          "Haber (pagos)",
+          rowsHaber,
+          "<th>Método de pago</th><th>Tipo</th>",
+          (r) => `<td>${escHtml(r.metodo)}</td><td>${escHtml(r.tipoNombre)}</td>`,
+          "haber"
+        )}
         <div class="tot">
           <strong>Debe: ${fmtMoney(totPeriodo.debe)}</strong>
           <strong>Haber: ${fmtMoney(totPeriodo.haber)}</strong>
@@ -467,6 +699,19 @@ export default function Pagos() {
   }
 
   // ---------- Render ----------
+  // Si un pago viejo tiene un método que ya no está en la lista, se conserva como opción
+  const metodosBase = origenesApi ? origenes.map((o) => o.tipo) : METODOS_PAGO_DEFAULT;
+  const metodoOptions =
+    editor.metodo && !metodosBase.includes(editor.metodo) ? [...metodosBase, editor.metodo] : metodosBase;
+
+  // Tipos del desplegable según la columna: Haber = pagos / saldo inicial, Debe = tratamientos.
+  // Si un movimiento viejo tiene un tipo de la otra columna, se conserva para no perderlo.
+  const tiposEditor = movimientoTipos.filter(
+    (t) =>
+      tipoEsHaber(t.tipo) === (editor.kind === "haber") ||
+      String(t.id) === String(form.id_movimiento_tipo)
+  );
+
   if (!useBackend) {
     return (
       <div className="gt-page">
@@ -493,14 +738,20 @@ export default function Pagos() {
         }
         actions={
           <>
+            <Button icon="credit_card" onClick={() => setOpenMetodos(true)}>
+              Métodos de pago
+            </Button>
             <Button icon="download" onClick={exportarCsv} disabled={!rows.length}>
               Exportar CSV
             </Button>
             <Button icon="print" onClick={imprimir} disabled={!rows.length}>
               Imprimir
             </Button>
-            <Button variant="primary" icon="add" onClick={abrirNuevo}>
-              Nuevo movimiento
+            <Button variant="secondary" icon="arrow_upward" onClick={() => abrirNuevo("debe")}>
+              Nuevo cargo (Debe)
+            </Button>
+            <Button variant="primary" icon="arrow_downward" onClick={() => abrirNuevo("haber")}>
+              Registrar pago (Haber)
             </Button>
           </>
         }
@@ -584,6 +835,17 @@ export default function Pagos() {
             </button>
           </div>
 
+          <Field label="Metodo de pago">
+            <select className="ui-input" value={metodoFiltro} onChange={(e) => setMetodoFiltro(e.target.value)}>
+              <option value="">Todos</option>
+              {metodosBase.map((mp) => (
+                <option key={mp} value={mp}>
+                  {mp}
+                </option>
+              ))}
+            </select>
+          </Field>
+
           <div className="ui-inline pagos-filtros__actions">
             <Button type="submit" variant="primary" icon="search" loading={loading}>
               Buscar
@@ -603,19 +865,16 @@ export default function Pagos() {
       </Card>
 
       {/* Resultados */}
-      <Card
-        title="Movimientos"
-        icon="receipt_long"
-        flush
-        actions={searched && !loading && <Badge variant="primary">{rows.length} resultados</Badge>}
-      >
-        {!searched ? (
+      {!searched ? (
+        <Card title="Movimientos" icon="receipt_long" flush>
           <EmptyState
             icon="manage_search"
             title="Buscá movimientos"
             description="Elegí un paciente, un rango de fechas o tipos (todo opcional) y tocá Buscar."
           />
-        ) : !loading && rows.length === 0 ? (
+        </Card>
+      ) : !loading && rows.length === 0 ? (
+        <Card title="Movimientos" icon="receipt_long" flush>
           <EmptyState
             icon="receipt_long"
             title="No hay movimientos"
@@ -628,65 +887,51 @@ export default function Pagos() {
               ) : null
             }
           />
-        ) : (
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Paciente</th>
-                  <th>Tipo</th>
-                  <th className="num">Debe</th>
-                  <th className="num">Haber</th>
-                  <th className="num">Saldo</th>
-                  <th>Observaciones</th>
-                  <th className="actions" aria-label="Acciones" />
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <SkeletonRows rows={6} cols={8} />
-                ) : (
-                  rows.map((m) => (
-                    <tr key={m.id} className="is-clickable" onClick={() => abrirEditar(m)}>
-                      <td className="nowrap">
-                        {fmtFecha(m.fecha)}
-                        <div className="ui-soft" style={{ fontSize: ".75rem" }}>
-                          #{m.id}
-                        </div>
-                      </td>
-                      <td>{m.pacienteNombre || <span className="ui-soft">—</span>}</td>
-                      <td>
-                        <Badge variant="neutral">{m.tipoNombre}</Badge>
-                      </td>
-                      <td className="num">{Number(m.debe) ? fmtMoney(m.debe) : <span className="ui-soft">—</span>}</td>
-                      <td className="num">{Number(m.haber) ? fmtMoney(m.haber) : <span className="ui-soft">—</span>}</td>
-                      <td className={`num ${Number(m.saldo) > 0 ? "ui-money-pos" : Number(m.saldo) < 0 ? "ui-money-neg" : ""}`}>
-                        {fmtMoney(m.saldo)}
-                      </td>
-                      <td className="truncate" title={m.observaciones || ""}>
-                        {m.observaciones || <span className="ui-soft">—</span>}
-                      </td>
-                      <td className="actions" onClick={(e) => e.stopPropagation()}>
-                        <IconButton icon="edit" label="Editar" onClick={() => abrirEditar(m)} />
-                        <IconButton icon="delete" label="Eliminar" danger onClick={() => eliminar(m)} />
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+        </Card>
+      ) : (
+        <>
+          <MovimientosTabla
+            kind="debe"
+            title="Debe · Cargos"
+            icon="arrow_upward"
+            rows={rowsDebe}
+            total={totPeriodo.debe}
+            loading={loading}
+            onEdit={abrirEditar}
+            onDelete={eliminar}
+          />
+          <MovimientosTabla
+            kind="haber"
+            title="Haber · Pagos"
+            icon="arrow_downward"
+            rows={rowsHaber}
+            total={totPeriodo.haber}
+            loading={loading}
+            onEdit={abrirEditar}
+            onDelete={eliminar}
+          />
+        </>
+      )}
 
       {/* Editor */}
       <Modal
         open={editorOpen}
         onClose={() => setEditorOpen(false)}
         dismissible={!saving}
-        title={isEdit ? `Editar movimiento #${form.id}` : "Nuevo movimiento"}
-        subtitle={isEdit ? "Modificá los datos y guardá los cambios." : "Registrá un cargo o un pago del paciente."}
+        title={
+          editor.kind === "haber"
+            ? isEdit
+              ? `Editar pago #${form.id} (Haber)`
+              : "Registrar pago (Haber)"
+            : isEdit
+            ? `Editar cargo #${form.id} (Debe)`
+            : "Nuevo cargo (Debe)"
+        }
+        subtitle={
+          editor.kind === "haber"
+            ? "Pago realizado por el paciente."
+            : "Importe que el paciente debe (sesión, tratamiento, etc.)."
+        }
         footer={
           <>
             <Button variant="secondary" onClick={() => setEditorOpen(false)} disabled={saving}>
@@ -699,34 +944,17 @@ export default function Pagos() {
         }
       >
         <form id="mov-editor" onSubmit={guardarEditor} noValidate>
-          <div className="ui-segmented" role="radiogroup" aria-label="Tipo de importe" style={{ marginBottom: 16 }}>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={editor.kind === "debe"}
-              className={editor.kind === "debe" ? "is-active" : ""}
-              onClick={() => setEditor((s) => ({ ...s, kind: "debe" }))}
-            >
-              <span className="material-symbols-rounded" aria-hidden>arrow_upward</span>
-              Cargo (Debe)
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={editor.kind === "haber"}
-              className={editor.kind === "haber" ? "is-active" : ""}
-              onClick={() => setEditor((s) => ({ ...s, kind: "haber" }))}
-            >
-              <span className="material-symbols-rounded" aria-hidden>arrow_downward</span>
-              Pago (Haber)
-            </button>
-          </div>
-
           <div className="ui-row-2">
-            <Field label="Paciente" required>
+            <Field
+              label="Paciente"
+              required
+              // el backend no permite cambiar el paciente al editar (PUT no recibe id_cliente)
+              hint={isEdit ? "No se puede cambiar al editar. Para otro paciente, eliminá y cargá de nuevo." : undefined}
+            >
               <select
                 className="ui-input"
                 value={form.id_cliente}
+                disabled={isEdit}
                 onChange={(e) => setForm((s) => ({ ...s, id_cliente: e.target.value }))}
               >
                 <option value="">Seleccionar…</option>
@@ -755,7 +983,7 @@ export default function Pagos() {
                 onChange={(e) => setForm((s) => ({ ...s, id_movimiento_tipo: e.target.value }))}
               >
                 <option value="">Seleccionar…</option>
-                {movimientoTipos.map((t) => (
+                {tiposEditor.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.tipo}
                   </option>
@@ -785,6 +1013,23 @@ export default function Pagos() {
             </div>
           </div>
 
+          {editor.kind === "haber" && (
+            <Field label="Metodo de pago" required>
+              <select
+                className="ui-input"
+                value={editor.metodo}
+                onChange={(e) => setEditor((s) => ({ ...s, metodo: e.target.value }))}
+              >
+                <option value="">Seleccionar…</option>
+                {metodoOptions.map((mp) => (
+                  <option key={mp} value={mp}>
+                    {mp}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+
           <Field label="Observaciones">
             <textarea
               className="ui-input"
@@ -801,6 +1046,15 @@ export default function Pagos() {
           )}
         </form>
       </Modal>
+
+      {/* ABM métodos de pago */}
+      <MetodosPagoModal
+        open={openMetodos}
+        onClose={() => setOpenMetodos(false)}
+        origenes={origenes}
+        apiOk={origenesApi === true}
+        onChanged={cargarOrigenes}
+      />
 
       {/* Selector de tipos */}
       <Modal

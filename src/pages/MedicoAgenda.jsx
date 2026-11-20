@@ -1,6 +1,5 @@
 // src/pages/MedicoAgenda.jsx
 import { useEffect, useMemo, useState } from "react";
-import WeekCalendar from "../ui/WeekCalendar.jsx";
 import ScheduleGrid from "../ui/ScheduleGrid.jsx";
 import { readSession } from "../utils/jwt.js";
 import { fetchTurnosProfesionalSemana } from "../api/turnosBackend.js";
@@ -50,12 +49,6 @@ export default function MedicoAgenda() {
     [weekStart]
   );
 
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const t = new Date();
-    t.setHours(0, 0, 0, 0);
-    return t;
-  });
-
   const [items, setItems] = useState([]);
   const [selectedAppt, setSelectedAppt] = useState(null);
 
@@ -82,15 +75,12 @@ export default function MedicoAgenda() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart, profId]);
 
-  const handleCalendarSelect = (d) => {
-    const clean =
-      d instanceof Date ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : d;
-    setSelectedDate(clean);
-    setAnchorDate(startOfWeek(clean));
-  };
+  const handleNavigate = (d) => setAnchorDate(startOfWeek(d));
 
   return (
-    <div className="gt-page medico-layout">
+    <div className="gt-page">
+      <Alert variant="info">Tocá un turno de la grilla para resaltarlo.</Alert>
+
       <div className="medico-main">
         <ScheduleGrid
           weekDays={weekDays}
@@ -98,22 +88,9 @@ export default function MedicoAgenda() {
           items={items}
           onSelectAppt={(appt) => setSelectedAppt(appt)}
           selectedId={selectedAppt?.id}
+          onNavigate={handleNavigate}
         />
       </div>
-
-      <aside className="medico-side">
-        <div className="card calendar">
-          <WeekCalendar
-            anchorDate={weekStart}
-            selectedDate={selectedDate}
-            onSelectDate={handleCalendarSelect}
-          />
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <Alert variant="info">Tocá un turno de la grilla para resaltarlo.</Alert>
-        </div>
-      </aside>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * - widths en %
  *
  * Props:
- *  - left, center, right: ReactNode
+ *  - left, center, right: ReactNode (right es opcional: sin él quedan 2 paneles)
  *  - defaultSizes: [left%, center%, right%]
  *  - minLeftPx, minCenterPx, minRightPx
  *  - storageKey (opcional) para recordar tamaños
@@ -146,7 +146,11 @@ export default function ResizableLayout({
     e.preventDefault();
   };
 
-  const [L, C, R] = sizes;
+  const hasRight = right != null && right !== false;
+  // Sin panel derecho: el centro ocupa todo lo que deja el izquierdo
+  const [L, C0, R0] = sizes;
+  const R = hasRight ? R0 : 0;
+  const C = hasRight ? C0 : 100 - L;
 
   return (
     <div className="resizable-shell" ref={containerRef}>
@@ -166,17 +170,21 @@ export default function ResizableLayout({
         {center}
       </section>
 
-      <div
-        className="resizable-handle"
-        role="separator"
-        aria-label="Redimensionar panel derecho"
-        onPointerDown={startDrag("R")}
-        title="Arrastrá para ajustar"
-      />
+      {hasRight && (
+        <>
+          <div
+            className="resizable-handle"
+            role="separator"
+            aria-label="Redimensionar panel derecho"
+            onPointerDown={startDrag("R")}
+            title="Arrastrá para ajustar"
+          />
 
-      <section className="resizable-pane" style={{ width: `${R}%` }}>
-        {right}
-      </section>
+          <section className="resizable-pane" style={{ width: `${R}%` }}>
+            {right}
+          </section>
+        </>
+      )}
     </div>
   );
 }

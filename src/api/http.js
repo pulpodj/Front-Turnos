@@ -60,7 +60,7 @@ export async function httpJSON(
 
   if (!res.ok) {
     const msg =
-      (data && (data.message || data.error)) ||
+      (data && (data.message || data.error || data.msg)) ||
       `${res.status} ${res.statusText}`;
     throw new Error(msg);
   }

@@ -47,6 +47,8 @@ export function emptyMovimientoForm() {
     observaciones: "",
     // ✅ Según tu swagger/backend: id_cliente (NO id_paciente)
     id_cliente: "",
+    // método de pago (solo Haber) -> orígenes de movimiento
+    id_movimiento_origen: "",
     saldo: 0,
   };
 }
@@ -64,6 +66,7 @@ export function mapMovimientoToForm(m) {
     observaciones: m?.observaciones ?? "",
     // compat: si algún response viejo viene como id_paciente
     id_cliente: m?.id_cliente ?? m?.id_paciente ?? "",
+    id_movimiento_origen: m?.id_movimiento_origen ?? m?.id_origen ?? "",
     saldo: m?.saldo ?? 0,
   };
 }
@@ -79,6 +82,7 @@ export function mapMovimientoToForm(m) {
  * - fecha_desde
  * - fecha_hasta
  * - id_movimiento_tipo
+ * - id_movimiento_origen (método de pago)
  */
 export async function listarMovimientos(params = {}) {
   const qs = new URLSearchParams();
@@ -92,6 +96,8 @@ export async function listarMovimientos(params = {}) {
   const idTipoRaw =
     params.id_movimiento_tipo ?? params.idMovimientoTipo ?? params.id_tipo ?? params.idTipo;
 
+  const idOrigenRaw = params.id_movimiento_origen ?? params.idMovimientoOrigen;
+
   if (fechaDesde) qs.set("fecha_desde", fechaDesde);
   if (fechaHasta) qs.set("fecha_hasta", fechaHasta);
 
@@ -101,6 +107,10 @@ export async function listarMovimientos(params = {}) {
 
   if (idTipoRaw !== undefined && idTipoRaw !== null && String(idTipoRaw) !== "") {
     qs.set("id_movimiento_tipo", String(idTipoRaw));
+  }
+
+  if (idOrigenRaw !== undefined && idOrigenRaw !== null && String(idOrigenRaw) !== "") {
+    qs.set("id_movimiento_origen", String(idOrigenRaw));
   }
 
   const query = qs.toString();
@@ -143,4 +153,65 @@ export async function listarMovimientoTipos() {
 /** Alias (para no refactorizar imports viejos) */
 export async function searchMovimientos(params = {}) {
   return listarMovimientos(params);
+}
+
+/**
+ * Métodos de pago predeterminados. Se usan como lista fija si la API de
+ * orígenes no responde, y como "faltantes" sugeridos en el ABM.
+ */
+export const METODOS_PAGO_DEFAULT = [
+  "Efectivo",
+  "Transferencia",
+  "Cheque",
+  "MercadoPago - Milton Neffen",
+  "MercadoPago - Ignacio Pioli",
+];
+
+// =========================================================
+// Orígenes de movimiento = "Metodo de pago" (Efectivo, Transferencia, MercadoPago…)
+// GET devuelve { id, origen, descripcion, baja }.
+// POST/PUT: el backend nuevo lee `origen`; el publicado hasta ahora lee `tipo`.
+// Se mandan los dos con el mismo valor (se puede sacar `tipo` cuando el cambio esté en producción).
+// En el front se normaliza a { id, tipo, descripcion, baja } (tipo = nombre que se muestra).
+// =========================================================
+
+// Rutas verificadas contra el backend (GET lista y GET /{id}).
+const ORIGENES_PATH = "/API/movimiento_origenes"; // GET lista
+const ORIGEN_PATH = "/API/movimiento_origen"; //    GET/DELETE /{id}, POST, PUT
+
+/** El SP puede devolver un array directo o envuelto ({ data | origenes | result }). */
+function unwrapList(data) {
+  if (Array.isArray(data)) return data;
+  for (const k of ["data", "origenes", "movimiento_origenes", "result", "rows"]) {
+    if (Array.isArray(data?.[k])) return data[k];
+  }
+  return [];
+}
+
+const normOrigen = (o) => ({ ...o, tipo: o?.origen ?? o?.tipo ?? "", descripcion: o?.descripcion ?? "" });
+
+/** GET lista de orígenes (métodos de pago). */
+export async function listarMovimientoOrigenes() {
+  return unwrapList(await httpJSON(ORIGENES_PATH, { method: "GET" })).map(normOrigen);
+}
+
+/** GET /{id} */
+export async function obtenerMovimientoOrigen(id) {
+  return normOrigen(await httpJSON(`${ORIGEN_PATH}/${id}`, { method: "GET" }));
+}
+
+/** POST { origen, descripcion } */
+export async function crearMovimientoOrigen({ tipo, descripcion = "" }) {
+  return httpJSON(ORIGEN_PATH, { method: "POST", body: { origen: tipo, tipo, descripcion } });
+}
+
+/** PUT { id, origen, descripcion } */
+export async function modificarMovimientoOrigen({ id, tipo, descripcion = "" }) {
+  if (!id) throw new Error("Falta id para modificar el método de pago.");
+  return httpJSON(ORIGEN_PATH, { method: "PUT", body: { id, origen: tipo, tipo, descripcion } });
+}
+
+/** DELETE /{id} (baja lógica) */
+export async function eliminarMovimientoOrigen(id) {
+  return httpJSON(`${ORIGEN_PATH}/${id}`, { method: "DELETE" });
 }

@@ -1,8 +1,8 @@
 // src/pages/Secretaria.jsx
-// Sección "Agenda y turnos" de la secretaría: ABM de turnos | grilla | calendario.
+// Sección "Agenda y turnos" de la secretaría: ABM de turnos | grilla.
+// La navegación por semana / mes / año está en el encabezado de la grilla.
 // (Pacientes y Pagos tienen su propia sección en la sidebar.)
 import { useEffect, useMemo, useState } from "react";
-import WeekCalendar from "../ui/WeekCalendar.jsx";
 import ScheduleGrid from "../ui/ScheduleGrid.jsx";
 import ABMPanel from "../ui/ABMPanel.jsx";
 import ResizableLayout from "../ui/ResizableLayout.jsx";
@@ -55,12 +55,6 @@ export default function Secretaria() {
     () => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   );
-
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const t = new Date();
-    t.setHours(0, 0, 0, 0);
-    return t;
-  });
 
   const [doctorId, setDoctorId] = useState("");
   const [doctors, setDoctors] = useState([]);
@@ -139,11 +133,7 @@ export default function Secretaria() {
 
   const handleSelectAppt = (appt) => setSelectedAppt(appt || null);
 
-  const handleCalendarSelect = (d) => {
-    const clean = d instanceof Date ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : d;
-    setSelectedDate(clean);
-    setAnchorDate(startOfWeek(clean));
-  };
+  const handleNavigate = (d) => setAnchorDate(startOfWeek(d));
 
   const leftPane = (
     <div className="pane-scroll">
@@ -208,19 +198,8 @@ export default function Secretaria() {
           items={items}
           onSelectAppt={handleSelectAppt}
           selectedId={selectedAppt?.id}
+          onNavigate={handleNavigate}
           compact
-        />
-      </div>
-    </div>
-  );
-
-  const rightPane = (
-    <div className="pane-scroll">
-      <div className="card calendar" style={{ marginBottom: 12 }}>
-        <WeekCalendar
-          anchorDate={weekStart}
-          selectedDate={selectedDate}
-          onSelectDate={handleCalendarSelect}
         />
       </div>
     </div>
@@ -231,12 +210,11 @@ export default function Secretaria() {
       <ResizableLayout
         left={leftPane}
         center={centerPane}
-        right={rightPane}
-        defaultSizes={[28, 50, 22]}
+        defaultSizes={[30, 70, 0]}
         minLeftPx={280}
         minCenterPx={520}
-        minRightPx={280}
-        storageKey="gt_secretaria_split_v2"
+        minRightPx={0}
+        storageKey="gt_secretaria_split_v3"
       />
     </div>
   );

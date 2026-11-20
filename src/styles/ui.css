@@ -958,7 +958,7 @@ select.ui-input{
 
 /* Pagos: barra de filtros */
 .pagos-filtros{
-  grid-template-columns: minmax(200px, 2fr) repeat(2, minmax(140px, 1fr)) minmax(170px, 1.2fr) auto;
+  grid-template-columns: minmax(200px, 2fr) repeat(2, minmax(140px, 1fr)) minmax(170px, 1.2fr) minmax(170px, 1.2fr) auto;
 }
 .pagos-filtros__actions{ flex-wrap: nowrap; }
 .pagos-tipos-trigger{
@@ -971,6 +971,10 @@ select.ui-input{
 }
 .pagos-tipos-trigger > span:first-child{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pagos-tipos-trigger .material-symbols-rounded{ color: var(--ui-text-muted); font-size: 19px; }
+@media (max-width: 1400px){
+  .pagos-filtros{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pagos-filtros__pac{ grid-column: 1 / -1; }
+}
 @media (max-width: 1200px){
   .pagos-filtros{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pagos-filtros__pac{ grid-column: 1 / -1; }
@@ -1140,3 +1144,70 @@ select.ui-input{
 .agenda-toolbar__field > .material-symbols-rounded{ color: var(--ui-primary); }
 .agenda-toolbar__field .ui-input{ min-height: 36px; width: auto; min-width: 220px; }
 .agenda-toolbar__hint{ font-size: .82rem; }
+
+/* =========================================================
+   Grilla: navegación semana / mes / año en el encabezado
+   (reemplaza al calendario lateral)
+   ========================================================= */
+.sched-nav{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 8px 10px;
+  background: #31629e;
+  color: #fff;
+}
+.sched-nav__btn{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.sched-nav__btn:hover{ background: rgba(255,255,255,.24); }
+.sched-nav__btn .material-symbols-rounded{ font-size: 22px; }
+
+/* Selector "nov ▾" / "2026 ▾": texto en negrita con flechita, sin caja */
+.sched-nav__pick{
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.sched-nav__pick select{
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: 700;
+  padding: 4px 24px 4px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sched-nav__pick select:hover,
+.sched-nav__pick select:focus-visible{ background: rgba(255,255,255,.12); outline: none; }
+.sched-nav__pick select option{ color: #1b2a3d; font-weight: 500; }
+.sched-nav__pick .material-symbols-rounded{
+  position: absolute;
+  right: 2px;
+  font-size: 20px;
+  opacity: .75;
+  pointer-events: none;
+}
+
+/* Día actual en el encabezado de la grilla */
+.sched-col-head.is-today{
+  background: rgba(255,255,255,.18);
+  box-shadow: inset 0 -3px 0 #fff;
+}
